@@ -1,0 +1,164 @@
+.profile {
+  padding: 80px 40px;
+  background: #fafafa;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: 260px 1fr 320px;
+  gap: 40px;
+  align-items: start;
+}
+
+.profile-left {
+  position: sticky;
+  top: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profile-portrait {
+  width: 100%;
+  border-radius: 10px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
+}
+
+.profile-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-links a {
+  font-size: 13px;
+  color: #222;
+  text-decoration: underline;
+}
+
+.profile-center {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.profile-intro {
+  font-size: 15px;
+  line-height: 1.7;
+  color: #111;
+  margin: 0;
+}
+
+.profile-section h3 {
+  margin: 0 0 10px 0;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.profile-section ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profile-section li {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.exp-title {
+  font-weight: 600;
+}
+
+.exp-role {
+  color: #444;
+  font-size: 14px;
+}
+
+.exp-years {
+  color: #888;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.exp-details {
+  margin: 6px 0 0 0;
+  color: #555;
+  line-height: 1.6;
+}
+
+.skill-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skill-tags span {
+  font-size: 12px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+}
+
+.profile-right .timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.timeline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.timeline-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+  letter-spacing: 0.04em;
+}
+
+.timeline-image img {
+  width: 100%;
+  border-radius: 8px;
+}
+
+@media (max-width: 1080px) {
+  .profile-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .profile-left {
+    position: relative;
+    top: auto;
+  }
+
+  .profile-right {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .profile {
+    padding: 60px 20px;
+  }
+
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-right {
+    grid-column: span 1;
+  }
+}
