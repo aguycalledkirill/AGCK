@@ -6,25 +6,19 @@
 .work-header {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 40px;
+  align-items: flex-end;
+  margin-bottom: 32px;
 }
 
 .work-title {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-}
-
-.work-title h2 {
-  font-size: 32px;
-  font-weight: 400;
-  margin: 0;
-  color: #000;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 12px 18px;
+  align-items: end;
 }
 
 .work-years {
-  font-size: 14px;
+  font-size: 13px;
   color: #999;
 }
 
@@ -60,8 +54,8 @@
 
 .work-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 30px;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 26px;
 }
 
 .work-grid.index {
@@ -88,6 +82,7 @@
   position: relative;
   cursor: pointer;
   transition: transform 0.3s ease;
+  grid-column: span 4;
 }
 
 .project-card:hover {
@@ -95,21 +90,21 @@
 }
 
 .project-card.large {
-  grid-column: span 1;
+  grid-column: span 6;
   grid-row: span 2;
 }
 
 .project-card.large-tall {
-  grid-column: span 2;
+  grid-column: span 8;
   grid-row: span 2;
 }
 
 .project-card.medium {
-  grid-column: span 1;
+  grid-column: span 4;
 }
 
 .project-card.small {
-  grid-column: span 1;
+  grid-column: span 3;
 }
 
 .project-image {
