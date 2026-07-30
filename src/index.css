@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap');
 
 * {
   margin: 0;
@@ -7,25 +7,24 @@
 }
 
 :root {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-family: 'Syne', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #000;
-  background-color: #fff;
+  color: #141414;
+  background-color: #e6e6e2;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-html {
-  scroll-behavior: smooth;
-}
-
-body {
+html,
+body,
+#root {
   margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
+  width: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
 }
 
 a {
@@ -38,16 +37,11 @@ button {
 }
 
 img {
-  max-width: 100%;
-  height: auto;
+  max-width: none;
   display: block;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-weight: 400;
-}
-
 ::selection {
-  background: #000;
-  color: #fff;
+  background: #141414;
+  color: #f4f4f2;
 }
