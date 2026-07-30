@@ -609,11 +609,19 @@ function PhotoGallery() {
       className={`gallery ${isMobile ? 'is-mobile' : ''} ${isDragging ? 'is-dragging' : ''} ${isFlipping ? 'is-flipping' : ''}`}
       style={appearanceStyle}
     >
+      <div className="gallery-atmosphere" aria-hidden="true" />
+      <div className="gallery-vignette" aria-hidden="true" />
+      <p className="gallery-watermark" aria-hidden="true">
+        AGCK
+      </p>
+
       <header className="gallery-chrome">
-        <a className="gallery-brand" href="/">
-          AGCK
-        </a>
-        <p className="gallery-label">Photography</p>
+        <div className="gallery-brand-block">
+          <a className="gallery-brand" href="/">
+            AGCK
+          </a>
+          <p className="gallery-support">Free-roam photography</p>
+        </div>
         <button type="button" className="gallery-reset" onClick={goOverview}>
           Overview
         </button>
@@ -635,7 +643,7 @@ function PhotoGallery() {
             height: canvasSize.height,
           }}
         >
-          {photoList.map((photo) => {
+          {photoList.map((photo, index) => {
             const layout = layouts[photo.id] ?? photo;
             return (
               <button
@@ -649,6 +657,7 @@ function PhotoGallery() {
                   width: layout.w,
                   height: layout.h,
                   zIndex: focusedId === photo.id ? 5 : 1,
+                  '--enter-i': Math.min(index, 16),
                 }}
                 aria-label={photo.alt}
               >
@@ -666,11 +675,11 @@ function PhotoGallery() {
 
         {hintVisible && settings.showHint && (
           <div className="gallery-hint" aria-hidden="true">
-            <span>Drag to explore</span>
+            <span>Drag</span>
             <span className="gallery-hint-dot" />
-            <span>{isMobile ? 'Pinch to zoom' : 'Scroll to zoom'}</span>
+            <span>{isMobile ? 'Pinch' : 'Scroll'}</span>
             <span className="gallery-hint-dot" />
-            <span>{isMobile ? 'Tap a photo' : 'Click a photo'}</span>
+            <span>{isMobile ? 'Tap' : 'Click'}</span>
           </div>
         )}
       </div>

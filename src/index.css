@@ -7,11 +7,30 @@
 }
 
 :root {
-  font-family: 'Syne', sans-serif;
+  /* Cool stone editorial — AGCK free-roam gallery */
+  --surface-0: #e8e7e2;
+  --surface-1: #f3f2ed;
+  --surface-2: #fafaf7;
+  --surface-ink: #121210;
+  --ink: #121210;
+  --ink-muted: #5c5c56;
+  --ink-faint: #8a8a84;
+  --line: rgba(18, 18, 16, 0.1);
+  --accent: #2a3830;
+  --focus-ring: rgba(18, 18, 16, 0.28);
+  --chrome-glass: rgba(243, 242, 237, 0.55);
+  --gap: 1rem;
+  --radius-sm: 2px;
+  --radius-md: 10px;
+  --font-display: 'Syne', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  font-family: var(--font-display);
   line-height: 1.5;
   font-weight: 400;
-  color: #141414;
-  background-color: #e6e6e2;
+  color: var(--ink);
+  background-color: var(--surface-0);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -42,6 +61,6 @@ img {
 }
 
 ::selection {
-  background: #141414;
-  color: #f4f4f2;
+  background: var(--ink);
+  color: var(--surface-1);
 }
