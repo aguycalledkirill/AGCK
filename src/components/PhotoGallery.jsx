@@ -2,9 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CANVAS, photos } from '../data/photos';
 import './PhotoGallery.css';
 
-const MIN_SCALE = 0.22;
-const MAX_SCALE = 2.8;
-const FOCUS_PADDING = 0.72;
+const MIN_SCALE = 0.18;
+const MAX_SCALE = 3.2;
+const FOCUS_PADDING = 0.78;
+const GAP = 40;
+
+const contentBounds = photos.reduce(
+  (bounds, photo) => ({
+    minX: Math.min(bounds.minX, photo.x),
+    minY: Math.min(bounds.minY, photo.y),
+    maxX: Math.max(bounds.maxX, photo.x + photo.w),
+    maxY: Math.max(bounds.maxY, photo.y + photo.h),
+  }),
+  { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity },
+);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -27,6 +38,7 @@ function PhotoGallery() {
   const pinchRef = useRef(null);
   const animRef = useRef(null);
   const movedRef = useRef(false);
+  const pressTargetRef = useRef(null);
 
   const applyCamera = useCallback((next) => {
     const viewport = viewportRef.current;
@@ -91,14 +103,17 @@ function PhotoGallery() {
     if (!viewport) return cameraRef.current;
 
     const { width, height } = viewport.getBoundingClientRect();
+    const contentW = contentBounds.maxX - contentBounds.minX + GAP * 2;
+    const contentH = contentBounds.maxY - contentBounds.minY + GAP * 2;
     const scale = Math.min(
-      (width * 0.92) / CANVAS.width,
-      (height * 0.88) / CANVAS.height,
-      0.55,
+      (width * 0.94) / contentW,
+      (height * 0.9) / contentH,
     );
+    const centerX = (contentBounds.minX + contentBounds.maxX) / 2;
+    const centerY = (contentBounds.minY + contentBounds.maxY) / 2;
     return {
-      x: (width - CANVAS.width * scale) / 2,
-      y: (height - CANVAS.height * scale) / 2,
+      x: width / 2 - centerX * scale,
+      y: height / 2 - centerY * scale,
       scale,
     };
   }, []);
@@ -195,6 +210,9 @@ function PhotoGallery() {
     setHintVisible(false);
     movedRef.current = false;
 
+    const photoEl = event.target.closest?.('[data-photo-id]');
+    pressTargetRef.current = photoEl?.getAttribute('data-photo-id') ?? null;
+
     pointersRef.current.set(event.pointerId, {
       x: event.clientX,
       y: event.clientY,
@@ -212,6 +230,7 @@ function PhotoGallery() {
       setIsDragging(true);
     } else if (pointersRef.current.size === 2) {
       dragRef.current = null;
+      pressTargetRef.current = null;
       const pts = [...pointersRef.current.values()];
       const dx = pts[1].x - pts[0].x;
       const dy = pts[1].y - pts[0].y;
@@ -241,6 +260,7 @@ function PhotoGallery() {
       const midX = (pts[0].x + pts[1].x) / 2;
       const midY = (pts[0].y + pts[1].y) / 2;
       movedRef.current = true;
+      pressTargetRef.current = null;
       zoomAt(midX, midY, (pinchRef.current.scale * factor) / cameraRef.current.scale);
       setFocusedId(null);
       return;
@@ -250,17 +270,25 @@ function PhotoGallery() {
 
     const dx = event.clientX - dragRef.current.startX;
     const dy = event.clientY - dragRef.current.startY;
-    if (Math.hypot(dx, dy) > 4) movedRef.current = true;
+    if (Math.hypot(dx, dy) > 5) {
+      movedRef.current = true;
+      pressTargetRef.current = null;
+      setFocusedId(null);
+    }
+
+    if (!movedRef.current) return;
 
     applyCamera({
       x: dragRef.current.originX + dx,
       y: dragRef.current.originY + dy,
       scale: cameraRef.current.scale,
     });
-    setFocusedId(null);
   };
 
   const endPointer = (event) => {
+    const photoId = pressTargetRef.current;
+    const wasTap = !movedRef.current && pointersRef.current.size === 1;
+
     pointersRef.current.delete(event.pointerId);
     if (pointersRef.current.size < 2) pinchRef.current = null;
 
@@ -277,19 +305,18 @@ function PhotoGallery() {
     if (pointersRef.current.size === 0) {
       dragRef.current = null;
       setIsDragging(false);
+      pressTargetRef.current = null;
+
+      if (wasTap && photoId) {
+        const photo = photos.find((item) => item.id === photoId);
+        if (!photo) return;
+        if (focusedId === photo.id) {
+          goOverview();
+        } else {
+          focusPhoto(photo);
+        }
+      }
     }
-  };
-
-  const onPhotoActivate = (photo, event) => {
-    event.stopPropagation();
-    if (movedRef.current) return;
-
-    if (focusedId === photo.id) {
-      goOverview();
-      return;
-    }
-
-    focusPhoto(photo);
   };
 
   useEffect(() => {
@@ -332,6 +359,7 @@ function PhotoGallery() {
             <button
               key={photo.id}
               type="button"
+              data-photo-id={photo.id}
               className={`gallery-photo ${focusedId === photo.id ? 'is-focused' : ''}`}
               style={{
                 left: photo.x,
@@ -339,10 +367,15 @@ function PhotoGallery() {
                 width: photo.w,
                 height: photo.h,
               }}
-              onClick={(event) => onPhotoActivate(photo, event)}
               aria-label={photo.alt}
             >
-              <img src={photo.src} alt={photo.alt} draggable={false} loading="lazy" />
+              <img
+                src={photo.src}
+                alt={photo.alt}
+                draggable={false}
+                loading="eager"
+                decoding="async"
+              />
             </button>
           ))}
         </div>
