@@ -4,8 +4,9 @@ import gsap from 'gsap';
 import { Flip } from 'gsap/Flip';
 import { CANVAS, photos as photoData } from '../data/photos';
 import {
-  FACTORY_DEFAULTS,
   clearSavedDefaults,
+  getDeviceDefaults,
+  isMobileViewport,
   loadSavedDefaults,
   saveAsDefault,
 } from '../gallery/settings';
@@ -43,8 +44,12 @@ function PhotoGallery() {
   const focusedIdRef = useRef(null);
   const settingsRef = useRef(loadSavedDefaults());
   const flipStaggerRef = useRef(null);
+  const velocityRef = useRef({ vx: 0, vy: 0, t: 0 });
+  const inertiaRafRef = useRef(0);
+  const isMobileRef = useRef(isMobileViewport());
 
   const [settings, setSettings] = useState(() => loadSavedDefaults());
+  const [isMobile, setIsMobile] = useState(() => isMobileViewport());
   const [controlsOpen, setControlsOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState('');
   const [layouts, setLayouts] = useState(() =>
@@ -64,6 +69,18 @@ function PhotoGallery() {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 720px), (pointer: coarse)');
+    const sync = () => {
+      const mobile = media.matches;
+      isMobileRef.current = mobile;
+      setIsMobile(mobile);
+    };
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
 
   const appearanceStyle = useMemo(
     () => ({
@@ -135,6 +152,47 @@ function PhotoGallery() {
     },
     [measureViewport, paintCamera, schedulePaint],
   );
+
+  const stopInertia = useCallback(() => {
+    if (inertiaRafRef.current) {
+      cancelAnimationFrame(inertiaRafRef.current);
+      inertiaRafRef.current = 0;
+    }
+    velocityRef.current = { vx: 0, vy: 0, t: 0 };
+  }, []);
+
+  const startInertia = useCallback(() => {
+    if (!isMobileRef.current) return;
+    const { vx, vy } = velocityRef.current;
+    if (Math.hypot(vx, vy) < 0.35) return;
+
+    let last = performance.now();
+    let curVx = vx;
+    let curVy = vy;
+
+    const tick = (now) => {
+      const dt = Math.min(32, now - last);
+      last = now;
+      const friction = Math.pow(0.92, dt / 16.67);
+      curVx *= friction;
+      curVy *= friction;
+
+      if (Math.hypot(curVx, curVy) < 0.12) {
+        inertiaRafRef.current = 0;
+        return;
+      }
+
+      const cam = cameraRef.current;
+      applyCamera({
+        x: cam.x + curVx * dt,
+        y: cam.y + curVy * dt,
+        scale: cam.scale,
+      });
+      inertiaRafRef.current = requestAnimationFrame(tick);
+    };
+
+    inertiaRafRef.current = requestAnimationFrame(tick);
+  }, [applyCamera]);
 
   const getOverviewCamera = useCallback(() => {
     const cfg = settingsRef.current;
@@ -313,8 +371,9 @@ function PhotoGallery() {
 
   const handleResetFactory = useCallback(() => {
     clearSavedDefaults();
-    settingsRef.current = { ...FACTORY_DEFAULTS };
-    setSettings({ ...FACTORY_DEFAULTS });
+    const next = getDeviceDefaults();
+    settingsRef.current = next;
+    setSettings(next);
     setSavedNotice('Factory reset');
     if (!focusedIdRef.current) fitOverview();
   }, [fitOverview]);
@@ -330,6 +389,7 @@ function PhotoGallery() {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', onResize);
       if (paintRafRef.current) cancelAnimationFrame(paintRafRef.current);
+      if (inertiaRafRef.current) cancelAnimationFrame(inertiaRafRef.current);
     };
   }, [fitOverview, measureViewport]);
 
@@ -362,9 +422,11 @@ function PhotoGallery() {
     if (flipBusyRef.current) return;
     if (event.target.closest?.('.gc')) return;
 
+    stopInertia();
     setHintVisible(false);
     movedRef.current = false;
     measureViewport();
+    velocityRef.current = { vx: 0, vy: 0, t: performance.now() };
 
     const photoEl = event.target.closest?.('[data-photo-id]');
     pressTargetRef.current = photoEl?.getAttribute('data-photo-id') ?? null;
@@ -382,6 +444,9 @@ function PhotoGallery() {
         startY: event.clientY,
         originX: cameraRef.current.x,
         originY: cameraRef.current.y,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        lastT: performance.now(),
       };
       setIsDragging(true);
     } else if (pointersRef.current.size === 2) {
@@ -415,12 +480,14 @@ function PhotoGallery() {
       const midY = (pts[0].y + pts[1].y) / 2;
       movedRef.current = true;
       pressTargetRef.current = null;
+      velocityRef.current = { vx: 0, vy: 0, t: performance.now() };
       zoomAt(midX, midY, (pinchRef.current.scale * factor) / cameraRef.current.scale);
       return;
     }
 
     if (!dragRef.current) return;
 
+    const now = performance.now();
     const dx = event.clientX - dragRef.current.startX;
     const dy = event.clientY - dragRef.current.startY;
     if (Math.hypot(dx, dy) > settingsRef.current.dragThreshold) {
@@ -429,6 +496,18 @@ function PhotoGallery() {
     }
 
     if (!movedRef.current) return;
+
+    const frameDx = event.clientX - dragRef.current.lastX;
+    const frameDy = event.clientY - dragRef.current.lastY;
+    const frameDt = Math.max(1, now - dragRef.current.lastT);
+    velocityRef.current = {
+      vx: frameDx / frameDt,
+      vy: frameDy / frameDt,
+      t: now,
+    };
+    dragRef.current.lastX = event.clientX;
+    dragRef.current.lastY = event.clientY;
+    dragRef.current.lastT = now;
 
     applyCamera({
       x: dragRef.current.originX + dx,
@@ -440,6 +519,7 @@ function PhotoGallery() {
   const endPointer = (event) => {
     const photoId = pressTargetRef.current;
     const wasTap = !movedRef.current && pointersRef.current.size === 1;
+    const shouldInertia = movedRef.current && pointersRef.current.size === 1;
 
     pointersRef.current.delete(event.pointerId);
     if (pointersRef.current.size < 2) pinchRef.current = null;
@@ -451,6 +531,9 @@ function PhotoGallery() {
         startY: remaining[1].y,
         originX: cameraRef.current.x,
         originY: cameraRef.current.y,
+        lastX: remaining[1].x,
+        lastY: remaining[1].y,
+        lastT: performance.now(),
       };
     }
 
@@ -465,13 +548,15 @@ function PhotoGallery() {
         } else {
           focusPhoto(photoId);
         }
+      } else if (shouldInertia) {
+        startInertia();
       }
     }
   };
 
   return (
     <div
-      className={`gallery ${isDragging ? 'is-dragging' : ''} ${isFlipping ? 'is-flipping' : ''}`}
+      className={`gallery ${isMobile ? 'is-mobile' : ''} ${isDragging ? 'is-dragging' : ''} ${isFlipping ? 'is-flipping' : ''}`}
       style={appearanceStyle}
     >
       <header className="gallery-chrome">
@@ -533,9 +618,9 @@ function PhotoGallery() {
           <div className="gallery-hint" aria-hidden="true">
             <span>Drag to explore</span>
             <span className="gallery-hint-dot" />
-            <span>Scroll to zoom</span>
+            <span>{isMobile ? 'Pinch to zoom' : 'Scroll to zoom'}</span>
             <span className="gallery-hint-dot" />
-            <span>Click a photo</span>
+            <span>{isMobile ? 'Tap a photo' : 'Click a photo'}</span>
           </div>
         )}
       </div>

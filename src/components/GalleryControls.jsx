@@ -1,4 +1,5 @@
-import { SETTINGS_SECTIONS } from '../gallery/settings';
+import { useEffect, useState } from 'react';
+import { SETTINGS_SECTIONS, isMobileViewport } from '../gallery/settings';
 import './GalleryControls.css';
 
 function FieldControl({ field, value, onChange }) {
@@ -74,52 +75,104 @@ function GalleryControls({
   onResetFactory,
   savedNotice,
 }) {
+  const [isMobile, setIsMobile] = useState(() => isMobileViewport());
+  const [openSections, setOpenSections] = useState(() =>
+    isMobileViewport() ? { focus: true } : Object.fromEntries(SETTINGS_SECTIONS.map((s) => [s.id, true])),
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 720px), (pointer: coarse)');
+    const sync = () => {
+      const mobile = media.matches;
+      setIsMobile(mobile);
+      setOpenSections((prev) => {
+        if (!mobile) {
+          return Object.fromEntries(SETTINGS_SECTIONS.map((s) => [s.id, true]));
+        }
+        const anyOpen = Object.values(prev).some(Boolean);
+        return anyOpen ? prev : { focus: true };
+      });
+    };
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
+
+  const toggleSection = (id) => {
+    if (!isMobile) return;
+    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   return (
-    <div className={`gc ${open ? 'is-open' : ''}`}>
+    <div className={`gc ${open ? 'is-open' : ''} ${isMobile ? 'is-mobile' : ''}`}>
       <button type="button" className="gc-fab" onClick={onToggle} aria-expanded={open}>
         {open ? 'Close' : 'Controls'}
       </button>
 
       {open && (
-        <aside className="gc-panel" aria-label="Gallery behavior controls">
-          <header className="gc-header">
-            <div>
-              <p className="gc-kicker">Gallery</p>
-              <h2>Behavior</h2>
+        <>
+          {isMobile && (
+            <button
+              type="button"
+              className="gc-backdrop"
+              aria-label="Close controls"
+              onClick={onToggle}
+            />
+          )}
+          <aside className="gc-panel" aria-label="Gallery behavior controls">
+            <div className="gc-sheet-handle" aria-hidden="true" />
+            <header className="gc-header">
+              <div>
+                <p className="gc-kicker">Gallery</p>
+                <h2>Behavior</h2>
+              </div>
+              {savedNotice && <p className="gc-notice">{savedNotice}</p>}
+            </header>
+
+            <div className="gc-actions">
+              <button type="button" className="gc-btn gc-btn-primary" onClick={onSetDefault}>
+                Set as default
+              </button>
+              <button type="button" className="gc-btn" onClick={onResetSaved}>
+                Load default
+              </button>
+              <button type="button" className="gc-btn" onClick={onResetFactory}>
+                Factory reset
+              </button>
             </div>
-            {savedNotice && <p className="gc-notice">{savedNotice}</p>}
-          </header>
 
-          <div className="gc-actions">
-            <button type="button" className="gc-btn gc-btn-primary" onClick={onSetDefault}>
-              Set as default
-            </button>
-            <button type="button" className="gc-btn" onClick={onResetSaved}>
-              Load default
-            </button>
-            <button type="button" className="gc-btn" onClick={onResetFactory}>
-              Factory reset
-            </button>
-          </div>
-
-          <div className="gc-sections">
-            {SETTINGS_SECTIONS.map((section) => (
-              <section key={section.id} className="gc-section">
-                <h3>{section.label}</h3>
-                <div className="gc-fields">
-                  {section.fields.map((field) => (
-                    <FieldControl
-                      key={field.key}
-                      field={field}
-                      value={settings[field.key]}
-                      onChange={onChange}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        </aside>
+            <div className="gc-sections">
+              {SETTINGS_SECTIONS.map((section) => {
+                const expanded = openSections[section.id] ?? !isMobile;
+                return (
+                  <section key={section.id} className={`gc-section ${expanded ? 'is-open' : ''}`}>
+                    <button
+                      type="button"
+                      className="gc-section-toggle"
+                      onClick={() => toggleSection(section.id)}
+                      aria-expanded={expanded}
+                    >
+                      <h3>{section.label}</h3>
+                      {isMobile && <span className="gc-section-chevron">{expanded ? '−' : '+'}</span>}
+                    </button>
+                    {expanded && (
+                      <div className="gc-fields">
+                        {section.fields.map((field) => (
+                          <FieldControl
+                            key={field.key}
+                            field={field}
+                            value={settings[field.key]}
+                            onChange={onChange}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          </aside>
+        </>
       )}
     </div>
   );

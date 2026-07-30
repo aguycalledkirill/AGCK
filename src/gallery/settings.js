@@ -51,14 +51,45 @@ export const FACTORY_DEFAULTS = {
   showHint: true,
 };
 
+/** Touch / narrow viewport overrides layered under saved defaults. */
+export const MOBILE_DEFAULTS = {
+  focusViewPad: 0.86,
+  focusOffsetX: 0,
+  focusOffsetY: 0,
+  pushGap: 24,
+  overviewGap: 28,
+  overviewFitX: 0.96,
+  overviewFitY: 0.88,
+  dragThreshold: 10,
+  hoverScale: 1,
+  focusShadowY: 18,
+  focusShadowBlur: 48,
+  focusShadowOpacity: 0.24,
+  panBoundsPad: 0.18,
+  flipDuration: 0.85,
+  flipStagger: 0.16,
+};
+
+export function isMobileViewport() {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(max-width: 720px), (pointer: coarse)').matches;
+}
+
+export function getDeviceDefaults() {
+  return isMobileViewport()
+    ? { ...FACTORY_DEFAULTS, ...MOBILE_DEFAULTS }
+    : { ...FACTORY_DEFAULTS };
+}
+
 export function loadSavedDefaults() {
+  const device = getDeviceDefaults();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...FACTORY_DEFAULTS };
+    if (!raw) return device;
     const parsed = JSON.parse(raw);
-    return { ...FACTORY_DEFAULTS, ...parsed };
+    return { ...device, ...parsed };
   } catch {
-    return { ...FACTORY_DEFAULTS };
+    return device;
   }
 }
 
