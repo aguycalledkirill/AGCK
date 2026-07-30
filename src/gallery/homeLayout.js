@@ -14,7 +14,12 @@ export function buildTopAlignedHome(settings = {}) {
   const captionSpace = settings.showCaptions === false ? 0 : CAPTION_SPACE;
 
   // Slight per-column top stagger so rows feel curated, not rigid.
-  const colStagger = columns === 3 ? [0, gap * 0.35, gap * 0.12] : Array.from({ length: columns }, () => 0);
+  const colStagger =
+    columns === 3
+      ? [0, gap * 0.45, gap * 0.18]
+      : columns === 2
+        ? [0, gap * 0.28]
+        : Array.from({ length: columns }, () => 0);
   const heights = Array.from({ length: columns }, (_, i) => pad + (colStagger[i] ?? 0));
   const photos = [];
 

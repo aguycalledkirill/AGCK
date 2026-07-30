@@ -17,9 +17,9 @@ export const EASING_OPTIONS = [
 export const FACTORY_DEFAULTS = {
   // Home grid (top-aligned columns, generous air)
   gridColumns: 3,
-  gridGap: 200,
-  gridPad: 120,
-  columnWidth: 400,
+  gridGap: 260,
+  gridPad: 140,
+  columnWidth: 380,
 
   // Focus enlarge
   focusViewPad: 0.72,
@@ -41,8 +41,8 @@ export const FACTORY_DEFAULTS = {
   // Camera — fit page width, top-align (not whole tall canvas)
   minScale: 0.12,
   maxScale: 3.2,
-  overviewFitX: 0.92,
-  overviewTop: 96,
+  overviewFitX: 0.88,
+  overviewTop: 100,
   wheelZoomIn: 1.08,
   wheelZoomOut: 0.92,
   panBoundsPad: 0.2,
@@ -54,16 +54,16 @@ export const FACTORY_DEFAULTS = {
   focusShadowY: 24,
   focusShadowBlur: 64,
   focusShadowOpacity: 0.22,
-  showHint: true,
+  showHint: false,
   showCaptions: true,
 };
 
 /** Touch / narrow viewport overrides layered under saved defaults. */
 export const MOBILE_DEFAULTS = {
   gridColumns: 2,
-  gridGap: 96,
-  gridPad: 48,
-  columnWidth: 280,
+  gridGap: 120,
+  gridPad: 40,
+  columnWidth: 260,
   focusViewPad: 0.88,
   focusOffsetX: 0,
   focusOffsetY: 0,
