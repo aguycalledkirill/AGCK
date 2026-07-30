@@ -5,12 +5,20 @@ import { Flip } from 'gsap/Flip';
 import {
   clearSavedDefaults,
   getDeviceDefaults,
+  hasSeenHint,
+  isDebugControlsEnabled,
   isMobileViewport,
   loadSavedDefaults,
+  markHintSeen,
+  prefersReducedMotion,
   saveAsDefault,
 } from '../gallery/settings';
 import { buildTopAlignedHome } from '../gallery/homeLayout';
-import { buildFocusLayouts, clamp, computeFocusRect } from '../gallery/layout';
+import {
+  buildFocusLayouts,
+  clamp,
+  computeCanonicalFocus,
+} from '../gallery/layout';
 import Footer from './Footer';
 import GalleryControls from './GalleryControls';
 import Header from './Header';
@@ -20,7 +28,14 @@ gsap.registerPlugin(Flip);
 gsap.ticker.fps(60);
 gsap.ticker.lagSmoothing(500, 33);
 
-const GRID_KEYS = new Set(['gridColumns', 'gridGap', 'gridPad', 'columnWidth', 'showCaptions']);
+const GRID_KEYS = new Set([
+  'gridColumns',
+  'gridGap',
+  'gridPad',
+  'columnWidth',
+  'showCaptions',
+  'layoutScatter',
+]);
 
 function boundsFromHome(byId) {
   return Object.values(byId).reduce(
@@ -34,15 +49,31 @@ function boundsFromHome(byId) {
   );
 }
 
+function motionConfig(cfg) {
+  if (prefersReducedMotion()) {
+    return {
+      ...cfg,
+      flipDuration: 0.01,
+      flipStagger: 0,
+      cameraTweenDuration: 0.01,
+    };
+  }
+  return cfg;
+}
+
 function PhotoGallery() {
   const [boot] = useState(() => buildTopAlignedHome(loadSavedDefaults()));
+  const [debugControls] = useState(() => isDebugControlsEnabled());
 
   const viewportRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef({ x: 0, y: 0, scale: 0.45 });
+  const cameraProxyRef = useRef({ x: 0, y: 0, scale: 0.45 });
+  const cameraTweenRef = useRef(null);
   const viewportSizeRef = useRef({ width: 0, height: 0, left: 0, top: 0 });
   const paintRafRef = useRef(0);
   const canvasSizeRef = useRef(boot.canvas);
+  const homeCanvasRef = useRef(boot.canvas);
   const contentBoundsRef = useRef(boundsFromHome(boot.byId));
   const layoutsRef = useRef(
     Object.fromEntries(boot.photos.map((photo) => [photo.id, { ...photo }])),
@@ -58,6 +89,7 @@ function PhotoGallery() {
   const velocityRef = useRef({ vx: 0, vy: 0, t: 0 });
   const inertiaRafRef = useRef(0);
   const isMobileRef = useRef(isMobileViewport());
+  const loadedIdsRef = useRef(new Set());
 
   const [settings, setSettings] = useState(() => loadSavedDefaults());
   const [isMobile, setIsMobile] = useState(() => isMobileViewport());
@@ -68,11 +100,13 @@ function PhotoGallery() {
     Object.fromEntries(boot.photos.map((photo) => [photo.id, { ...photo }])),
   );
   const [focusedId, setFocusedId] = useState(null);
-  const [hintVisible, setHintVisible] = useState(true);
+  const [hintVisible, setHintVisible] = useState(() => !hasSeenHint());
   const [isDragging, setIsDragging] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
   const [canvasSize, setCanvasSize] = useState(boot.canvas);
   const [footerY, setFooterY] = useState(boot.footerY);
+  const [hiResIds, setHiResIds] = useState(() => new Set());
+  const [visibleIds, setVisibleIds] = useState(() => new Set(boot.photos.slice(0, 8).map((p) => p.id)));
 
   const dragRef = useRef(null);
   const pointersRef = useRef(new Map());
@@ -84,12 +118,21 @@ function PhotoGallery() {
     settingsRef.current = settings;
   }, [settings]);
 
+  const [deviceEpoch, setDeviceEpoch] = useState(0);
+
   useEffect(() => {
     const media = window.matchMedia('(max-width: 720px), (pointer: coarse)');
     const sync = () => {
       const mobile = media.matches;
+      const wasMobile = isMobileRef.current;
       isMobileRef.current = mobile;
       setIsMobile(mobile);
+      if (wasMobile !== mobile) {
+        const next = loadSavedDefaults();
+        settingsRef.current = next;
+        setSettings(next);
+        setDeviceEpoch((n) => n + 1);
+      }
     };
     sync();
     media.addEventListener('change', sync);
@@ -104,6 +147,10 @@ function PhotoGallery() {
     }),
     [settings],
   );
+
+  const focusedPhoto = focusedId
+    ? photoList.find((photo) => photo.id === focusedId) ?? null
+    : null;
 
   const measureViewport = useCallback(() => {
     const viewport = viewportRef.current;
@@ -154,6 +201,9 @@ function PhotoGallery() {
         y: clamp(next.y, minY, maxY),
         scale,
       };
+      cameraProxyRef.current.x = cameraRef.current.x;
+      cameraProxyRef.current.y = cameraRef.current.y;
+      cameraProxyRef.current.scale = cameraRef.current.scale;
 
       if (immediate) {
         if (paintRafRef.current) {
@@ -166,6 +216,66 @@ function PhotoGallery() {
       }
     },
     [measureViewport, paintCamera, schedulePaint],
+  );
+
+  const killCameraTween = useCallback(() => {
+    if (cameraTweenRef.current) {
+      cameraTweenRef.current.kill();
+      cameraTweenRef.current = null;
+    }
+  }, []);
+
+  const tweenCameraTo = useCallback(
+    (target, duration, ease) => {
+      killCameraTween();
+      const cfg = settingsRef.current;
+      let { width, height } = viewportSizeRef.current;
+      if (!width || !height) {
+        ({ width, height } = measureViewport());
+      }
+      const canvas = canvasSizeRef.current;
+      const pad = cfg.panBoundsPad;
+      const scale = clamp(target.scale, cfg.minScale, cfg.maxScale);
+      const minX = width - canvas.width * scale - width * pad;
+      const maxX = width * pad;
+      const minY = height - canvas.height * scale - height * pad;
+      const maxY = height * pad;
+      const end = {
+        x: clamp(target.x, minX, maxX),
+        y: clamp(target.y, minY, maxY),
+        scale,
+      };
+
+      if (duration <= 0.02) {
+        applyCamera(end, { immediate: true });
+        return;
+      }
+
+      cameraProxyRef.current.x = cameraRef.current.x;
+      cameraProxyRef.current.y = cameraRef.current.y;
+      cameraProxyRef.current.scale = cameraRef.current.scale;
+
+      cameraTweenRef.current = gsap.to(cameraProxyRef.current, {
+        x: end.x,
+        y: end.y,
+        scale: end.scale,
+        duration,
+        ease,
+        onUpdate: () => {
+          cameraRef.current = {
+            x: cameraProxyRef.current.x,
+            y: cameraProxyRef.current.y,
+            scale: cameraProxyRef.current.scale,
+          };
+          paintCamera();
+        },
+        onComplete: () => {
+          cameraTweenRef.current = null;
+          applyCamera(end, { immediate: true });
+        },
+      });
+    },
+    [applyCamera, killCameraTween, measureViewport, paintCamera],
   );
 
   const stopInertia = useCallback(() => {
@@ -216,7 +326,6 @@ function PhotoGallery() {
       ({ width } = measureViewport());
     }
 
-    // Page-like overview: fit content width, pin to top (not the whole tall canvas).
     const bounds = contentBoundsRef.current;
     const contentW = bounds.maxX - bounds.minX + cfg.overviewGap * 2;
     const scale = Math.min(cfg.maxScale, (width * cfg.overviewFitX) / contentW);
@@ -236,6 +345,7 @@ function PhotoGallery() {
 
   const zoomAt = useCallback(
     (clientX, clientY, factor) => {
+      killCameraTween();
       const cfg = settingsRef.current;
       let { width, height, left, top } = viewportSizeRef.current;
       if (!width || !height) {
@@ -255,7 +365,7 @@ function PhotoGallery() {
         scale: nextScale,
       });
     },
-    [applyCamera, measureViewport],
+    [applyCamera, killCameraTween, measureViewport],
   );
 
   const applyLayouts = useCallback((nextLayouts) => {
@@ -263,14 +373,52 @@ function PhotoGallery() {
     setLayouts(nextLayouts);
   }, []);
 
-  const runFlip = useCallback((mutate) => {
-    if (flipBusyRef.current || !canvasRef.current) return;
+  const updateVisiblePhotos = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const { width, height } = viewportSizeRef.current;
+    if (!width || !height) return;
+
+    const cam = cameraRef.current;
+    const viewLeft = -cam.x / cam.scale;
+    const viewTop = -cam.y / cam.scale;
+    const viewRight = viewLeft + width / cam.scale;
+    const viewBottom = viewTop + height / cam.scale;
+    const pad = 400;
+
+    const next = new Set();
+    for (const photo of photoListRef.current) {
+      const layout = layoutsRef.current[photo.id] ?? photo;
+      const intersects =
+        layout.x < viewRight + pad &&
+        layout.x + layout.w > viewLeft - pad &&
+        layout.y < viewBottom + pad &&
+        layout.y + layout.h > viewTop - pad;
+      if (intersects || focusedIdRef.current === photo.id) {
+        next.add(photo.id);
+        loadedIdsRef.current.add(photo.id);
+      } else if (loadedIdsRef.current.has(photo.id)) {
+        next.add(photo.id);
+      }
+    }
+    setVisibleIds((prev) => {
+      if (prev.size === next.size && [...next].every((id) => prev.has(id))) return prev;
+      return next;
+    });
+  }, []);
+
+  const runFlip = useCallback((mutate, { onComplete } = {}) => {
+    if (!canvasRef.current) return;
+    if (flipBusyRef.current) {
+      Flip.killFlipsOf(canvasRef.current.querySelectorAll('.gallery-photo'));
+      flipBusyRef.current = false;
+    }
     flipBusyRef.current = true;
     setIsFlipping(true);
 
     const nodes = canvasRef.current.querySelectorAll('.gallery-photo');
     const state = Flip.getState(nodes, { props: 'borderRadius,boxShadow' });
-    const cfg = settingsRef.current;
+    const cfg = motionConfig(settingsRef.current);
 
     flushSync(() => {
       mutate();
@@ -291,42 +439,54 @@ function PhotoGallery() {
         flipBusyRef.current = false;
         flipStaggerRef.current = null;
         setIsFlipping(false);
+        onComplete?.();
       },
     });
   }, []);
 
   const focusPhoto = useCallback(
     (photoId) => {
-      const viewport = viewportRef.current;
-      if (!viewport) return;
-
       const home = homeRef.current[photoId];
       if (!home) return;
 
-      const cfg = settingsRef.current;
+      const cfg = motionConfig(settingsRef.current);
       const size = measureViewport();
-      const focusRect = computeFocusRect(home, size, cameraRef.current, cfg);
-      const focusCx = focusRect.x + focusRect.w / 2;
-      const focusCy = focusRect.y + focusRect.h / 2;
+      const { focusRect, camera } = computeCanonicalFocus(home, size, cfg);
+      stopInertia();
+      killCameraTween();
+
+      const result = buildFocusLayouts(
+        photoId,
+        focusRect,
+        homeRef.current,
+        layoutsRef.current,
+        cfg,
+        homeCanvasRef.current,
+      );
+
+      // Apply canvas expand before camera tween so pan bounds are correct.
+      canvasSizeRef.current = result.canvas;
+      setCanvasSize(result.canvas);
+
+      const layoutsNext = result.layouts;
+      const focusLayout = layoutsNext[photoId];
+      const shiftedCamera = {
+        scale: camera.scale,
+        x: size.width / 2 - (focusLayout.x + focusLayout.w / 2) * camera.scale,
+        y: size.height / 2 - (focusLayout.y + focusLayout.h / 2) * camera.scale,
+      };
+
+      tweenCameraTo(shiftedCamera, cfg.cameraTweenDuration, cfg.flipEase);
 
       runFlip(() => {
-        const next = buildFocusLayouts(
-          photoId,
-          focusRect,
-          homeRef.current,
-          layoutsRef.current,
-          cfg,
-          canvasSizeRef.current,
-        );
-
         if (cfg.staggerByDistance) {
           let maxDist = 1;
           const distances = {};
-          for (const id of Object.keys(next)) {
-            const layout = next[id];
+          for (const id of Object.keys(layoutsNext)) {
+            const layout = layoutsNext[id];
             const dist = Math.hypot(
-              layout.x + layout.w / 2 - focusCx,
-              layout.y + layout.h / 2 - focusCy,
+              layout.x + layout.w / 2 - (focusLayout.x + focusLayout.w / 2),
+              layout.y + layout.h / 2 - (focusLayout.y + focusLayout.h / 2),
             );
             distances[id] = dist;
             maxDist = Math.max(maxDist, dist);
@@ -342,14 +502,31 @@ function PhotoGallery() {
 
         focusedIdRef.current = photoId;
         setFocusedId(photoId);
-        applyLayouts(next);
-      });
+        setHiResIds((prev) => new Set(prev).add(photoId));
+        applyLayouts(layoutsNext);
+      }, { onComplete: () => updateVisiblePhotos() });
     },
-    [applyLayouts, measureViewport, runFlip],
+    [
+      applyLayouts,
+      killCameraTween,
+      measureViewport,
+      runFlip,
+      stopInertia,
+      tweenCameraTo,
+      updateVisiblePhotos,
+    ],
   );
 
   const goOverview = useCallback(() => {
     flipStaggerRef.current = null;
+    stopInertia();
+
+    canvasSizeRef.current = homeCanvasRef.current;
+    setCanvasSize(homeCanvasRef.current);
+
+    const cfg = motionConfig(settingsRef.current);
+    const overviewCam = getOverviewCamera();
+
     runFlip(() => {
       const next = Object.fromEntries(
         photoListRef.current.map((photo) => [photo.id, { ...homeRef.current[photo.id] }]),
@@ -357,13 +534,22 @@ function PhotoGallery() {
       focusedIdRef.current = null;
       setFocusedId(null);
       applyLayouts(next);
-    });
-    applyCamera(getOverviewCamera(), { immediate: true });
-  }, [applyCamera, applyLayouts, getOverviewCamera, runFlip]);
+    }, { onComplete: () => updateVisiblePhotos() });
+
+    tweenCameraTo(overviewCam, cfg.cameraTweenDuration, cfg.flipEase);
+  }, [
+    applyLayouts,
+    getOverviewCamera,
+    runFlip,
+    stopInertia,
+    tweenCameraTo,
+    updateVisiblePhotos,
+  ]);
 
   const applyHomeLayout = useCallback(
     (cfg, { animate = false } = {}) => {
       const home = buildTopAlignedHome(cfg);
+      homeCanvasRef.current = home.canvas;
       canvasSizeRef.current = home.canvas;
       contentBoundsRef.current = boundsFromHome(home.byId);
       photoListRef.current = home.photos;
@@ -374,23 +560,30 @@ function PhotoGallery() {
 
       const nextLayouts = Object.fromEntries(home.photos.map((photo) => [photo.id, { ...photo }]));
 
-      if (animate && !focusedIdRef.current) {
+      if (focusedIdRef.current) {
+        // Drop focus so grid rebuild stays coherent.
+        focusedIdRef.current = null;
+        setFocusedId(null);
+      }
+
+      if (animate) {
         runFlip(() => {
-          focusedIdRef.current = null;
-          setFocusedId(null);
           applyLayouts(nextLayouts);
-        });
-        applyCamera(getOverviewCamera(), { immediate: true });
-      } else if (!focusedIdRef.current) {
+        }, { onComplete: () => updateVisiblePhotos() });
+        tweenCameraTo(getOverviewCamera(), motionConfig(cfg).cameraTweenDuration, cfg.flipEase);
+      } else {
         applyLayouts(nextLayouts);
         applyCamera(getOverviewCamera(), { immediate: true });
-      } else {
-        // Keep focus layout; only refresh home targets for later Overview.
-        homeRef.current = Object.fromEntries(home.photos.map((photo) => [photo.id, { ...photo }]));
+        queueMicrotask(() => updateVisiblePhotos());
       }
     },
-    [applyCamera, applyLayouts, getOverviewCamera, runFlip],
+    [applyCamera, applyLayouts, getOverviewCamera, runFlip, tweenCameraTo, updateVisiblePhotos],
   );
+
+  useEffect(() => {
+    if (deviceEpoch === 0) return;
+    applyHomeLayout(settingsRef.current, { animate: false });
+  }, [deviceEpoch, applyHomeLayout]);
 
   const updateSetting = useCallback(
     (key, value) => {
@@ -429,11 +622,20 @@ function PhotoGallery() {
     applyHomeLayout(next, { animate: true });
   }, [applyHomeLayout]);
 
+  const dismissHint = useCallback(() => {
+    setHintVisible(false);
+    markHintSeen();
+  }, []);
+
   useEffect(() => {
-    const frame = requestAnimationFrame(() => fitOverview());
+    const frame = requestAnimationFrame(() => {
+      fitOverview();
+      updateVisiblePhotos();
+    });
     const onResize = () => {
       measureViewport();
       if (!focusedIdRef.current) fitOverview();
+      updateVisiblePhotos();
     };
     window.addEventListener('resize', onResize);
     return () => {
@@ -441,8 +643,9 @@ function PhotoGallery() {
       window.removeEventListener('resize', onResize);
       if (paintRafRef.current) cancelAnimationFrame(paintRafRef.current);
       if (inertiaRafRef.current) cancelAnimationFrame(inertiaRafRef.current);
+      killCameraTween();
     };
-  }, [fitOverview, measureViewport]);
+  }, [fitOverview, killCameraTween, measureViewport, updateVisiblePhotos]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -450,19 +653,20 @@ function PhotoGallery() {
 
     const onWheel = (event) => {
       event.preventDefault();
-      setHintVisible(false);
+      dismissHint();
       const cfg = settingsRef.current;
       const factor = event.deltaY > 0 ? cfg.wheelZoomOut : cfg.wheelZoomIn;
       zoomAt(event.clientX, event.clientY, factor);
+      updateVisiblePhotos();
     };
 
     viewport.addEventListener('wheel', onWheel, { passive: false });
     return () => viewport.removeEventListener('wheel', onWheel);
-  }, [zoomAt]);
+  }, [dismissHint, updateVisiblePhotos, zoomAt]);
 
   useEffect(() => {
     const onKey = (event) => {
-      if (event.key === 'Escape') goOverview();
+      if (event.key === 'Escape' && focusedIdRef.current) goOverview();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -471,10 +675,13 @@ function PhotoGallery() {
   const onPointerDown = (event) => {
     if (event.button !== undefined && event.button !== 0) return;
     if (flipBusyRef.current) return;
-    if (event.target.closest?.('.gc, .footer, .header a, a')) return;
+    if (event.target.closest?.('.gc, .footer, .header a, .gallery-close, .gallery-focus-meta, a')) {
+      return;
+    }
 
     stopInertia();
-    setHintVisible(false);
+    killCameraTween();
+    dismissHint();
     movedRef.current = false;
     measureViewport();
     velocityRef.current = { vx: 0, vy: 0, t: performance.now() };
@@ -592,6 +799,7 @@ function PhotoGallery() {
       dragRef.current = null;
       setIsDragging(false);
       pressTargetRef.current = null;
+      updateVisiblePhotos();
 
       if (wasTap && photoId && !flipBusyRef.current) {
         if (focusedIdRef.current === photoId) {
@@ -612,6 +820,24 @@ function PhotoGallery() {
     >
       <Header active="photography" />
 
+      {focusedId && (
+        <button
+          type="button"
+          className="gallery-close"
+          onClick={goOverview}
+          aria-label="Back to overview"
+        >
+          Overview
+        </button>
+      )}
+
+      {focusedPhoto && (
+        <div className="gallery-focus-meta" aria-live="polite">
+          <p className="gallery-focus-caption">{focusedPhoto.caption || focusedPhoto.title}</p>
+          <p className="gallery-focus-title">{focusedPhoto.title || focusedPhoto.alt}</p>
+        </div>
+      )}
+
       <div
         ref={viewportRef}
         className={`gallery-viewport ${isDragging ? 'is-dragging' : ''}`}
@@ -630,12 +856,15 @@ function PhotoGallery() {
         >
           {photoList.map((photo, index) => {
             const layout = layouts[photo.id] ?? photo;
+            const shouldLoad = visibleIds.has(photo.id) || focusedId === photo.id;
+            const useHiRes = hiResIds.has(photo.id) || focusedId === photo.id;
             return (
               <button
                 key={photo.id}
                 type="button"
                 data-photo-id={photo.id}
-                className={`gallery-photo ${focusedId === photo.id ? 'is-focused' : ''}`}
+                data-flip-id={photo.id}
+                className={`gallery-photo ${focusedId === photo.id ? 'is-focused' : ''} ${focusedId && focusedId !== photo.id ? 'is-dimmed' : ''}`}
                 style={{
                   left: layout.x,
                   top: layout.y,
@@ -646,13 +875,17 @@ function PhotoGallery() {
                 }}
                 aria-label={photo.alt}
               >
-                <img
-                  src={photo.src}
-                  alt={photo.alt}
-                  draggable={false}
-                  loading="eager"
-                  decoding="async"
-                />
+                {shouldLoad ? (
+                  <img
+                    src={useHiRes ? photo.srcFocus || photo.src : photo.src}
+                    alt={photo.alt}
+                    draggable={false}
+                    loading={index < 6 ? 'eager' : 'lazy'}
+                    decoding="async"
+                  />
+                ) : (
+                  <span className="gallery-photo-placeholder" aria-hidden="true" />
+                )}
                 {settings.showCaptions && photo.caption ? (
                   <span className="gallery-caption">{photo.caption}</span>
                 ) : null}
@@ -684,16 +917,18 @@ function PhotoGallery() {
         )}
       </div>
 
-      <GalleryControls
-        open={controlsOpen}
-        onToggle={() => setControlsOpen((open) => !open)}
-        settings={settings}
-        onChange={updateSetting}
-        onSetDefault={handleSetDefault}
-        onResetSaved={handleResetSaved}
-        onResetFactory={handleResetFactory}
-        savedNotice={savedNotice}
-      />
+      {debugControls && (
+        <GalleryControls
+          open={controlsOpen}
+          onToggle={() => setControlsOpen((open) => !open)}
+          settings={settings}
+          onChange={updateSetting}
+          onSetDefault={handleSetDefault}
+          onResetSaved={handleResetSaved}
+          onResetFactory={handleResetFactory}
+          savedNotice={savedNotice}
+        />
+      )}
     </div>
   );
 }

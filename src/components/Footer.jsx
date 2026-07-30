@@ -5,7 +5,7 @@ function Footer({ className = '', style }) {
     <footer className={`footer ${className}`.trim()} style={style}>
       <div className="footer-content">
         <div className="footer-copyright">
-          <p>&copy; 2023 A Guy Called Kirill</p>
+          <p>&copy; {new Date().getFullYear()} A Guy Called Kirill</p>
         </div>
 
         <div className="footer-links">

@@ -25,10 +25,10 @@ function dominantSide(home, focusRect) {
   return dy >= 0 ? 'south' : 'north';
 }
 
-function pushClearOf(home, focusRect, settings, canvas) {
+/** Push clear of focus on a cardinal axis — no canvas clamp (avoids forcing overlaps). */
+function pushClearOf(home, focusRect, settings) {
   const side = dominantSide(home, focusRect);
   const gap = settings.pushGap;
-  const pad = settings.canvasClampPad;
   let x = home.x;
   let y = home.y;
 
@@ -45,8 +45,8 @@ function pushClearOf(home, focusRect, settings, canvas) {
   return {
     id: home.id,
     side,
-    x: clamp(x, -pad, canvas.width - home.w + pad),
-    y: clamp(y, -pad, canvas.height - home.h + pad),
+    x,
+    y,
     w: home.w,
     h: home.h,
   };
@@ -131,6 +131,51 @@ function packSameSide(pushed, settings) {
   return packed;
 }
 
+/**
+ * Expand canvas so all layouts fit. Shifts layouts into positive space if needed.
+ * Mutates `layouts` in place when an origin shift is required.
+ */
+export function expandCanvasToFit(layouts, baseCanvas, pad = 80) {
+  const items = Object.values(layouts);
+  if (!items.length) {
+    return { width: baseCanvas.width, height: baseCanvas.height, originShift: { x: 0, y: 0 } };
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const item of items) {
+    minX = Math.min(minX, item.x);
+    minY = Math.min(minY, item.y);
+    maxX = Math.max(maxX, item.x + item.w);
+    maxY = Math.max(maxY, item.y + item.h);
+  }
+
+  const ox = minX < pad ? pad - minX : 0;
+  const oy = minY < pad ? pad - minY : 0;
+
+  if (ox || oy) {
+    for (const id of Object.keys(layouts)) {
+      const item = layouts[id];
+      layouts[id] = { ...item, x: item.x + ox, y: item.y + oy };
+    }
+    maxX += ox;
+    maxY += oy;
+  }
+
+  return {
+    width: Math.max(baseCanvas.width + ox, Math.ceil(maxX + pad)),
+    height: Math.max(baseCanvas.height + oy, Math.ceil(maxY + pad)),
+    originShift: { x: ox, y: oy },
+  };
+}
+
+/**
+ * Build focus layouts. Returns { layouts, canvas }.
+ * Canvas may grow so pushed cards never need to be clamped into the focus rect.
+ */
 export function buildFocusLayouts(photoId, focusRect, homes, currents, settings, canvas) {
   const gap = settings.pushGap;
   const next = {};
@@ -146,14 +191,16 @@ export function buildFocusLayouts(photoId, focusRect, homes, currents, settings,
 
     const current = currents[id] ?? base;
     if (rectsOverlap(current, focusRect, gap) || rectsOverlap(base, focusRect, gap)) {
-      pushedById.set(id, pushClearOf(base, focusRect, settings, canvas));
+      pushedById.set(id, pushClearOf(base, focusRect, settings));
     } else {
       next[id] = { ...base };
     }
   }
 
   let grew = true;
-  while (grew) {
+  let guard = 0;
+  while (grew && guard < ids.length + 2) {
+    guard += 1;
     grew = false;
     const packed = packSameSide([...pushedById.values()], settings);
     pushedById.clear();
@@ -177,7 +224,7 @@ export function buildFocusLayouts(photoId, focusRect, homes, currents, settings,
       }
 
       if (hits) {
-        pushedById.set(id, pushClearOf(homes[id], focusRect, settings, canvas));
+        pushedById.set(id, pushClearOf(homes[id], focusRect, settings));
         delete next[id];
         grew = true;
       }
@@ -194,9 +241,36 @@ export function buildFocusLayouts(photoId, focusRect, homes, currents, settings,
     };
   }
 
-  return next;
+  // Final hard clear vs focus (pack can still leave edge cases on tiny gaps).
+  for (const id of ids) {
+    if (id === photoId) continue;
+    const card = next[id];
+    if (!card) continue;
+    if (!rectsOverlap(card, focusRect, gap)) continue;
+    const cleared = pushClearOf(
+      { ...homes[id], x: card.x, y: card.y, w: card.w, h: card.h },
+      focusRect,
+      settings,
+    );
+    next[id] = {
+      id: cleared.id,
+      x: cleared.x,
+      y: cleared.y,
+      w: cleared.w,
+      h: cleared.h,
+    };
+  }
+
+  const expanded = expandCanvasToFit(next, canvas, settings.canvasClampPad ?? 80);
+
+  return {
+    layouts: next,
+    canvas: { width: expanded.width, height: expanded.height },
+    originShift: expanded.originShift,
+  };
 }
 
+/** Legacy helper: focus rect in current camera view space (zoom-dependent). */
 export function computeFocusRect(home, viewportSize, camera, settings) {
   const { width, height } = viewportSize;
   const viewW = width / camera.scale;
@@ -214,11 +288,60 @@ export function computeFocusRect(home, viewportSize, camera, settings) {
   }
 
   return {
-    x: viewLeft + (viewW - focusW) / 2 + settings.focusOffsetX,
-    y: viewTop + (viewH - focusH) / 2 + settings.focusOffsetY,
+    x: viewLeft + (viewW - focusW) / 2 + (settings.focusOffsetX || 0),
+    y: viewTop + (viewH - focusH) / 2 + (settings.focusOffsetY || 0),
     w: focusW,
     h: focusH,
   };
+}
+
+/**
+ * Canonical focus framing: size/camera independent of current roam zoom.
+ * Anchors the focus rect on the photo's home center so push distances stay local.
+ */
+export function computeCanonicalFocus(home, viewportSize, settings) {
+  const scale = clamp(
+    settings.focusCameraScale ?? 1,
+    settings.minScale ?? 0.1,
+    settings.maxScale ?? 4,
+  );
+  const pad = settings.focusViewPad ?? 0.72;
+  const viewW = viewportSize.width / scale;
+  const viewH = viewportSize.height / scale;
+  const aspect = home.w / home.h;
+
+  let focusW = viewW * pad;
+  let focusH = focusW / aspect;
+  if (focusH > viewH * pad) {
+    focusH = viewH * pad;
+    focusW = focusH * aspect;
+  }
+
+  const homeCx = home.x + home.w / 2;
+  const homeCy = home.y + home.h / 2;
+  const focusRect = {
+    x: homeCx - focusW / 2 + (settings.focusOffsetX || 0),
+    y: homeCy - focusH / 2 + (settings.focusOffsetY || 0),
+    w: focusW,
+    h: focusH,
+  };
+
+  const camera = {
+    scale,
+    x: viewportSize.width / 2 - (focusRect.x + focusRect.w / 2) * scale,
+    y: viewportSize.height / 2 - (focusRect.y + focusRect.h / 2) * scale,
+  };
+
+  return { focusRect, camera };
+}
+
+export function countFocusOverlaps(layouts, photoId, focusRect, gap) {
+  let count = 0;
+  for (const [id, layout] of Object.entries(layouts)) {
+    if (id === photoId) continue;
+    if (rectsOverlap(layout, focusRect, gap)) count += 1;
+  }
+  return count;
 }
 
 export { clamp, rectsOverlap };

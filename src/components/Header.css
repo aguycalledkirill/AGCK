@@ -17,9 +17,13 @@
 }
 
 .header-logo,
-.header-center,
 .header-nav {
   pointer-events: auto;
+}
+
+/* Title/time are informational — don't steal pan gestures. */
+.header-center {
+  pointer-events: none;
 }
 
 .header-logo a {

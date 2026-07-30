@@ -1,4 +1,9 @@
-export const STORAGE_KEY = 'agck.gallery.settings.v3';
+export const STORAGE_KEY_DESKTOP = 'agck.gallery.settings.v4.desktop';
+export const STORAGE_KEY_MOBILE = 'agck.gallery.settings.v4.mobile';
+/** @deprecated migrated on read */
+export const STORAGE_KEY_LEGACY = 'agck.gallery.settings.v3';
+
+export const HINT_SEEN_KEY = 'agck.gallery.hintSeen.v1';
 
 export const EASING_OPTIONS = [
   'power1.inOut',
@@ -13,6 +18,28 @@ export const EASING_OPTIONS = [
   'elastic.out(1, 0.5)',
 ];
 
+/** Keys that are device-layout specific and must not cross-contaminate. */
+export const DEVICE_SCOPED_KEYS = [
+  'gridColumns',
+  'gridGap',
+  'gridPad',
+  'columnWidth',
+  'focusViewPad',
+  'focusCameraScale',
+  'pushGap',
+  'overviewGap',
+  'overviewFitX',
+  'overviewTop',
+  'dragThreshold',
+  'hoverScale',
+  'panBoundsPad',
+  'flipDuration',
+  'flipStagger',
+  'focusShadowY',
+  'focusShadowBlur',
+  'focusShadowOpacity',
+];
+
 /** Factory defaults — sparse 3-col photography page (reference layout). */
 export const FACTORY_DEFAULTS = {
   // Home grid (top-aligned columns, generous air)
@@ -20,17 +47,20 @@ export const FACTORY_DEFAULTS = {
   gridGap: 260,
   gridPad: 140,
   columnWidth: 380,
+  layoutScatter: 0.22,
 
-  // Focus enlarge
+  // Focus enlarge (canonical camera scale)
   focusViewPad: 0.72,
+  focusCameraScale: 1,
   focusOffsetX: 0,
   focusOffsetY: 0,
+  cameraTweenDuration: 0.95,
 
   // Push / spacing
   pushGap: 64,
   overviewGap: 48,
   packPasses: 4,
-  canvasClampPad: 280,
+  canvasClampPad: 120,
 
   // Motion
   flipDuration: 0.95,
@@ -54,7 +84,7 @@ export const FACTORY_DEFAULTS = {
   focusShadowY: 24,
   focusShadowBlur: 64,
   focusShadowOpacity: 0.22,
-  showHint: false,
+  showHint: true,
   showCaptions: true,
 };
 
@@ -64,7 +94,9 @@ export const MOBILE_DEFAULTS = {
   gridGap: 120,
   gridPad: 40,
   columnWidth: 260,
-  focusViewPad: 0.88,
+  layoutScatter: 0.18,
+  focusViewPad: 0.86,
+  focusCameraScale: 1,
   focusOffsetX: 0,
   focusOffsetY: 0,
   pushGap: 28,
@@ -79,11 +111,21 @@ export const MOBILE_DEFAULTS = {
   panBoundsPad: 0.14,
   flipDuration: 0.85,
   flipStagger: 0.16,
+  cameraTweenDuration: 0.85,
 };
 
 export function isMobileViewport() {
   if (typeof window === 'undefined') return false;
   return window.matchMedia('(max-width: 720px), (pointer: coarse)').matches;
+}
+
+export function prefersReducedMotion() {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+export function getStorageKey(mobile = isMobileViewport()) {
+  return mobile ? STORAGE_KEY_MOBILE : STORAGE_KEY_DESKTOP;
 }
 
 export function getDeviceDefaults() {
@@ -92,10 +134,34 @@ export function getDeviceDefaults() {
     : { ...FACTORY_DEFAULTS };
 }
 
+function pickDeviceScoped(parsed) {
+  const out = {};
+  for (const key of DEVICE_SCOPED_KEYS) {
+    if (parsed[key] !== undefined) out[key] = parsed[key];
+  }
+  // Also allow shared appearance/motion keys from the same blob
+  for (const key of Object.keys(FACTORY_DEFAULTS)) {
+    if (DEVICE_SCOPED_KEYS.includes(key)) continue;
+    if (parsed[key] !== undefined) out[key] = parsed[key];
+  }
+  return out;
+}
+
 export function loadSavedDefaults() {
   const device = getDeviceDefaults();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = getStorageKey();
+    let raw = localStorage.getItem(key);
+    if (!raw) {
+      // One-time migrate from legacy shared blob into device-scoped key
+      const legacy = localStorage.getItem(STORAGE_KEY_LEGACY);
+      if (legacy) {
+        const parsed = JSON.parse(legacy);
+        const scoped = pickDeviceScoped(parsed);
+        localStorage.setItem(key, JSON.stringify(scoped));
+        raw = localStorage.getItem(key);
+      }
+    }
     if (!raw) return device;
     const parsed = JSON.parse(raw);
     return { ...device, ...parsed };
@@ -105,13 +171,41 @@ export function loadSavedDefaults() {
 }
 
 export function saveAsDefault(settings) {
-  const payload = { ...FACTORY_DEFAULTS, ...settings };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  const device = getDeviceDefaults();
+  const payload = { ...device, ...settings };
+  localStorage.setItem(getStorageKey(), JSON.stringify(payload));
   return payload;
 }
 
 export function clearSavedDefaults() {
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(getStorageKey());
+}
+
+export function hasSeenHint() {
+  try {
+    return localStorage.getItem(HINT_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markHintSeen() {
+  try {
+    localStorage.setItem(HINT_SEEN_KEY, '1');
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isDebugControlsEnabled() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('debug')) return true;
+    return localStorage.getItem('agck.gallery.debug') === '1';
+  } catch {
+    return false;
+  }
 }
 
 export const SETTINGS_SECTIONS = [
@@ -123,6 +217,7 @@ export const SETTINGS_SECTIONS = [
       { key: 'gridGap', label: 'Image gap', min: 24, max: 320, step: 4 },
       { key: 'gridPad', label: 'Outer padding', min: 24, max: 240, step: 4 },
       { key: 'columnWidth', label: 'Column width', min: 180, max: 560, step: 10 },
+      { key: 'layoutScatter', label: 'Scatter', min: 0, max: 0.6, step: 0.02 },
     ],
   },
   {
@@ -130,8 +225,10 @@ export const SETTINGS_SECTIONS = [
     label: 'Focus enlarge',
     fields: [
       { key: 'focusViewPad', label: 'Focus size', min: 0.35, max: 0.95, step: 0.01 },
+      { key: 'focusCameraScale', label: 'Focus camera scale', min: 0.5, max: 2, step: 0.05 },
       { key: 'focusOffsetX', label: 'Focus offset X', min: -400, max: 400, step: 4 },
       { key: 'focusOffsetY', label: 'Focus offset Y', min: -400, max: 400, step: 4 },
+      { key: 'cameraTweenDuration', label: 'Camera tween (s)', min: 0.2, max: 2.5, step: 0.05 },
     ],
   },
   {
@@ -141,7 +238,7 @@ export const SETTINGS_SECTIONS = [
       { key: 'pushGap', label: 'Push gap', min: 0, max: 160, step: 2 },
       { key: 'overviewGap', label: 'Overview padding', min: 0, max: 160, step: 2 },
       { key: 'packPasses', label: 'Pack passes', min: 1, max: 8, step: 1 },
-      { key: 'canvasClampPad', label: 'Canvas clamp pad', min: 0, max: 600, step: 10 },
+      { key: 'canvasClampPad', label: 'Canvas expand pad', min: 0, max: 600, step: 10 },
     ],
   },
   {

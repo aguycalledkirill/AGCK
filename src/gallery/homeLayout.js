@@ -2,8 +2,18 @@ import { photoItems } from '../data/photos';
 
 const CAPTION_SPACE = 28;
 
+/** Deterministic 0..1 hash from string id + salt. */
+function hash01(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967295;
+}
+
 /**
- * Sparse top-aligned column masonry (reference photography page).
+ * Sparse top-aligned column masonry with optional seeded scatter.
  * Generous gutters; captions reserved under each image.
  */
 export function buildTopAlignedHome(settings = {}) {
@@ -12,8 +22,8 @@ export function buildTopAlignedHome(settings = {}) {
   const pad = settings.gridPad ?? 120;
   const colWidth = settings.columnWidth ?? 400;
   const captionSpace = settings.showCaptions === false ? 0 : CAPTION_SPACE;
+  const scatter = Math.max(0, Math.min(0.8, settings.layoutScatter ?? 0));
 
-  // Slight per-column top stagger so rows feel curated, not rigid.
   const colStagger =
     columns === 3
       ? [0, gap * 0.45, gap * 0.18]
@@ -31,14 +41,22 @@ export function buildTopAlignedHome(settings = {}) {
 
     const w = colWidth;
     const h = Math.round(w / item.aspect);
-    const x = pad + col * (colWidth + gap);
-    const y = heights[col];
+    const baseX = pad + col * (colWidth + gap);
+    const baseY = heights[col];
+
+    const jx = (hash01(`${item.id}:x`) - 0.5) * 2 * gap * scatter * 0.35;
+    const jy = hash01(`${item.id}:y`) * gap * scatter * 0.55;
+
+    const x = baseX + jx;
+    const y = baseY + jy;
 
     photos.push({
       id: item.id,
       src: item.src,
+      srcFocus: item.srcFocus ?? item.src,
       alt: item.alt,
       caption: item.caption ?? '',
+      title: item.title ?? item.alt,
       aspect: item.aspect,
       x,
       y,
@@ -52,7 +70,7 @@ export function buildTopAlignedHome(settings = {}) {
   const contentBottom = Math.max(...heights) - gap + 8;
   const footerReserve = 160;
   const canvas = {
-    width: pad * 2 + columns * colWidth + (columns - 1) * gap,
+    width: pad * 2 + columns * colWidth + (columns - 1) * gap + gap * scatter,
     height: contentBottom + pad + footerReserve,
   };
 
