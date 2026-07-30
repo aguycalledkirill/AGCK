@@ -1,131 +1,23 @@
 .gallery {
   --photo-radius: 0px;
-  --photo-hover-scale: 1.04;
-  --focus-shadow: 0 28px 80px var(--focus-ring);
+  --photo-hover-scale: 1.02;
+  --focus-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
 
   position: relative;
   width: 100%;
   height: 100dvh;
   overflow: hidden;
-  background:
-    radial-gradient(95% 70% at 50% -10%, var(--surface-1) 0%, transparent 58%),
-    radial-gradient(80% 55% at 100% 100%, rgba(42, 56, 48, 0.07) 0%, transparent 50%),
-    radial-gradient(70% 50% at 0% 90%, rgba(18, 18, 16, 0.05) 0%, transparent 45%),
-    linear-gradient(165deg, #efeee9 0%, var(--surface-0) 48%, #dddcd6 100%);
-  color: var(--ink);
+  background: #fff;
+  color: #000;
   touch-action: none;
   user-select: none;
   contain: layout style;
 }
 
-/* Atmosphere: fine paper grain (not a flat fill) */
-.gallery-atmosphere {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  opacity: 0.28;
-  mix-blend-mode: multiply;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.07 0 0 0 0 0.07 0 0 0 0 0.06 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 180px 180px;
-}
-
-.gallery-vignette {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  background: radial-gradient(120% 90% at 50% 40%, transparent 40%, rgba(18, 18, 16, 0.08) 100%);
-}
-
-/* Brand survives remove-nav: large quiet wordmark on the stage */
-.gallery-watermark {
-  position: absolute;
-  left: max(1.2rem, env(safe-area-inset-left));
-  bottom: max(1.4rem, env(safe-area-inset-bottom));
-  z-index: 2;
-  margin: 0;
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: clamp(4.5rem, 18vw, 11rem);
-  letter-spacing: -0.07em;
-  line-height: 0.85;
-  color: var(--ink);
-  opacity: 0.045;
-  pointer-events: none;
-  user-select: none;
-  animation: watermark-in 1200ms var(--ease-out) both;
-}
-
-.gallery-chrome {
-  position: absolute;
-  inset: 0 0 auto;
-  z-index: 4;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  padding:
-    max(1.15rem, env(safe-area-inset-top))
-    max(1.4rem, env(safe-area-inset-right))
-    1.1rem
-    max(1.4rem, env(safe-area-inset-left));
-  pointer-events: none;
-  animation: brand-in 800ms var(--ease-out) both;
-}
-
-.gallery-brand-block,
-.gallery-reset {
-  pointer-events: auto;
-}
-
-.gallery-brand-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  max-width: min(18rem, 70vw);
-}
-
-.gallery-brand {
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: clamp(1.85rem, 3.6vw, 2.55rem);
-  letter-spacing: -0.05em;
-  line-height: 0.95;
-}
-
-.gallery-support {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  max-width: 16rem;
-}
-
-.gallery-reset {
-  border: 0;
-  background: transparent;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink);
-  cursor: pointer;
-  padding: 0.55rem 0.15rem;
-  min-height: 44px;
-  transition: opacity 180ms ease;
-}
-
-.gallery-reset:hover {
-  opacity: 0.5;
-}
-
 .gallery-viewport {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 1;
   cursor: grab;
   overflow: hidden;
   contain: layout style;
@@ -143,7 +35,7 @@
   left: 0;
   transform-origin: 0 0;
   will-change: transform;
-  transform: translate3d(0, 0, 0) scale(0.45);
+  transform: translate3d(0, 0, 0) scale(0.5);
   backface-visibility: hidden;
   contain: layout style;
 }
@@ -153,19 +45,19 @@
   padding: 0;
   border: 0;
   margin: 0;
-  background: #c8c7c1;
+  background: #e8e8e8;
   cursor: pointer;
-  overflow: hidden;
+  overflow: visible;
   appearance: none;
   border-radius: var(--photo-radius);
   -webkit-tap-highlight-color: transparent;
   transform: translateZ(0);
   backface-visibility: hidden;
-  contain: layout style paint;
+  contain: layout style;
   content-visibility: auto;
   opacity: 0;
-  animation: photo-in 900ms var(--ease-out) both;
-  animation-delay: calc(80ms + var(--enter-i, 0) * 45ms);
+  animation: photo-in 700ms ease both;
+  animation-delay: calc(60ms + var(--enter-i, 0) * 35ms);
   transition:
     box-shadow 220ms ease,
     border-radius 180ms ease;
@@ -179,17 +71,36 @@
   pointer-events: none;
   transform: translateZ(0) scale(1.001);
   backface-visibility: hidden;
-  transition: transform 420ms var(--ease-out);
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .gallery-photo:hover img {
   transform: translateZ(0) scale(var(--photo-hover-scale));
 }
 
+.gallery-caption {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  font-family: Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: #666;
+  white-space: nowrap;
+  pointer-events: none;
+  text-align: right;
+}
+
 .gallery-photo.is-focused {
   box-shadow: var(--focus-shadow);
   z-index: 5;
   content-visibility: visible;
+}
+
+.gallery-photo.is-focused .gallery-caption {
+  opacity: 0;
 }
 
 .gallery-photo.is-focused img {
@@ -208,56 +119,38 @@
   pointer-events: none;
 }
 
-/* Text-only hint — no card chrome */
+.gallery-canvas-footer {
+  position: absolute;
+  z-index: 2;
+  pointer-events: auto;
+}
+
 .gallery-hint {
   position: absolute;
   left: 50%;
-  bottom: max(1.6rem, calc(env(safe-area-inset-bottom) + 1.1rem));
+  bottom: max(1.4rem, calc(env(safe-area-inset-bottom) + 1rem));
   transform: translateX(-50%);
   z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.65rem;
-  padding: 0;
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.12em;
+  gap: 0.55rem;
+  font-family: Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink-muted);
+  color: #999;
   background: transparent;
-  animation: hint-in 900ms var(--ease-out) 500ms both;
+  animation: hint-in 800ms ease 400ms both;
   pointer-events: none;
   white-space: nowrap;
 }
 
 .gallery-hint-dot {
-  width: 3px;
-  height: 3px;
+  width: 2px;
+  height: 2px;
   border-radius: 50%;
-  background: var(--ink-faint);
-}
-
-@keyframes brand-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes watermark-in {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 0.045;
-    transform: translateY(0);
-  }
+  background: #bbb;
 }
 
 @keyframes photo-in {
@@ -272,7 +165,7 @@
 @keyframes hint-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(10px);
+    transform: translateX(-50%) translateY(8px);
   }
   to {
     opacity: 1;
@@ -281,37 +174,18 @@
 }
 
 @media (max-width: 720px), (pointer: coarse) {
-  .gallery-chrome {
-    padding:
-      max(0.95rem, env(safe-area-inset-top))
-      max(1rem, env(safe-area-inset-right))
-      0.95rem
-      max(1rem, env(safe-area-inset-left));
-  }
-
-  .gallery-brand {
-    font-size: clamp(1.7rem, 8vw, 2.1rem);
-  }
-
-  .gallery-support {
-    font-size: 0.6rem;
-    max-width: 11rem;
-  }
-
-  .gallery-watermark {
-    font-size: clamp(3.8rem, 28vw, 7rem);
-    bottom: max(4.8rem, calc(env(safe-area-inset-bottom) + 4.2rem));
-    opacity: 0.04;
-  }
-
   .gallery-hint {
     gap: 0.4rem;
-    font-size: 0.58rem;
-    bottom: max(1.1rem, calc(env(safe-area-inset-bottom) + 4.8rem));
+    font-size: 10px;
+    bottom: max(1rem, calc(env(safe-area-inset-bottom) + 4.6rem));
     max-width: calc(100vw - 2rem);
     white-space: normal;
     text-align: center;
     flex-wrap: wrap;
+  }
+
+  .gallery-caption {
+    font-size: 10px;
   }
 
   .gallery-photo:hover img {
@@ -322,18 +196,12 @@
 @media (prefers-reduced-motion: reduce) {
   .gallery-photo,
   .gallery-photo img,
-  .gallery-hint,
-  .gallery-chrome,
-  .gallery-watermark {
+  .gallery-hint {
     transition: none;
     animation: none;
   }
 
   .gallery-photo {
     opacity: 1;
-  }
-
-  .gallery-watermark {
-    opacity: 0.045;
   }
 }

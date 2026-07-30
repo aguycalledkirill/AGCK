@@ -11,14 +11,16 @@ import {
 } from '../gallery/settings';
 import { buildTopAlignedHome } from '../gallery/homeLayout';
 import { buildFocusLayouts, clamp, computeFocusRect } from '../gallery/layout';
+import Footer from './Footer';
 import GalleryControls from './GalleryControls';
+import Header from './Header';
 import './PhotoGallery.css';
 
 gsap.registerPlugin(Flip);
 gsap.ticker.fps(60);
 gsap.ticker.lagSmoothing(500, 33);
 
-const GRID_KEYS = new Set(['gridColumns', 'gridGap', 'gridPad', 'columnWidth']);
+const GRID_KEYS = new Set(['gridColumns', 'gridGap', 'gridPad', 'columnWidth', 'showCaptions']);
 
 function boundsFromHome(byId) {
   return Object.values(byId).reduce(
@@ -70,6 +72,7 @@ function PhotoGallery() {
   const [isDragging, setIsDragging] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
   const [canvasSize, setCanvasSize] = useState(boot.canvas);
+  const [footerY, setFooterY] = useState(boot.footerY);
 
   const dragRef = useRef(null);
   const pointersRef = useRef(new Map());
@@ -208,23 +211,20 @@ function PhotoGallery() {
 
   const getOverviewCamera = useCallback(() => {
     const cfg = settingsRef.current;
-    let { width, height } = viewportSizeRef.current;
-    if (!width || !height) {
-      ({ width, height } = measureViewport());
+    let { width } = viewportSizeRef.current;
+    if (!width) {
+      ({ width } = measureViewport());
     }
 
+    // Page-like overview: fit content width, pin to top (not the whole tall canvas).
     const bounds = contentBoundsRef.current;
     const contentW = bounds.maxX - bounds.minX + cfg.overviewGap * 2;
-    const contentH = bounds.maxY - bounds.minY + cfg.overviewGap * 2;
-    const scale = Math.min(
-      (width * cfg.overviewFitX) / contentW,
-      (height * cfg.overviewFitY) / contentH,
-    );
+    const scale = Math.min(cfg.maxScale, (width * cfg.overviewFitX) / contentW);
     const centerX = (bounds.minX + bounds.maxX) / 2;
-    const centerY = (bounds.minY + bounds.maxY) / 2;
+    const top = cfg.overviewTop ?? 96;
     return {
       x: width / 2 - centerX * scale,
-      y: height / 2 - centerY * scale,
+      y: top - bounds.minY * scale,
       scale,
     };
   }, [measureViewport]);
@@ -369,6 +369,7 @@ function PhotoGallery() {
       photoListRef.current = home.photos;
       homeRef.current = Object.fromEntries(home.photos.map((photo) => [photo.id, { ...photo }]));
       setCanvasSize(home.canvas);
+      setFooterY(home.footerY);
       setPhotoList(home.photos);
 
       const nextLayouts = Object.fromEntries(home.photos.map((photo) => [photo.id, { ...photo }]));
@@ -470,7 +471,7 @@ function PhotoGallery() {
   const onPointerDown = (event) => {
     if (event.button !== undefined && event.button !== 0) return;
     if (flipBusyRef.current) return;
-    if (event.target.closest?.('.gc')) return;
+    if (event.target.closest?.('.gc, .footer, .header a, a')) return;
 
     stopInertia();
     setHintVisible(false);
@@ -606,26 +607,10 @@ function PhotoGallery() {
 
   return (
     <div
-      className={`gallery ${isMobile ? 'is-mobile' : ''} ${isDragging ? 'is-dragging' : ''} ${isFlipping ? 'is-flipping' : ''}`}
+      className={`gallery ${isMobile ? 'is-mobile' : ''} ${isDragging ? 'is-dragging' : ''} ${isFlipping ? 'is-flipping' : ''} ${focusedId ? 'is-focused-mode' : ''}`}
       style={appearanceStyle}
     >
-      <div className="gallery-atmosphere" aria-hidden="true" />
-      <div className="gallery-vignette" aria-hidden="true" />
-      <p className="gallery-watermark" aria-hidden="true">
-        AGCK
-      </p>
-
-      <header className="gallery-chrome">
-        <div className="gallery-brand-block">
-          <a className="gallery-brand" href="/">
-            AGCK
-          </a>
-          <p className="gallery-support">Free-roam photography</p>
-        </div>
-        <button type="button" className="gallery-reset" onClick={goOverview}>
-          Overview
-        </button>
-      </header>
+      <Header active="photography" />
 
       <div
         ref={viewportRef}
@@ -668,12 +653,27 @@ function PhotoGallery() {
                   loading="eager"
                   decoding="async"
                 />
+                {settings.showCaptions && photo.caption ? (
+                  <span className="gallery-caption">{photo.caption}</span>
+                ) : null}
               </button>
             );
           })}
+
+          <Footer
+            className="gallery-canvas-footer"
+            style={{
+              top: footerY,
+              left: settings.gridPad ?? 120,
+              width: Math.max(
+                280,
+                canvasSize.width - (settings.gridPad ?? 120) * 2,
+              ),
+            }}
+          />
         </div>
 
-        {hintVisible && settings.showHint && (
+        {hintVisible && settings.showHint && !focusedId && (
           <div className="gallery-hint" aria-hidden="true">
             <span>Drag</span>
             <span className="gallery-hint-dot" />
