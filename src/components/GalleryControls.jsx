@@ -77,7 +77,7 @@ function GalleryControls({
 }) {
   const [isMobile, setIsMobile] = useState(() => isMobileViewport());
   const [openSections, setOpenSections] = useState(() =>
-    isMobileViewport() ? { focus: true } : Object.fromEntries(SETTINGS_SECTIONS.map((s) => [s.id, true])),
+    isMobileViewport() ? { grid: true } : Object.fromEntries(SETTINGS_SECTIONS.map((s) => [s.id, true])),
   );
 
   useEffect(() => {
@@ -90,7 +90,7 @@ function GalleryControls({
           return Object.fromEntries(SETTINGS_SECTIONS.map((s) => [s.id, true]));
         }
         const anyOpen = Object.values(prev).some(Boolean);
-        return anyOpen ? prev : { focus: true };
+        return anyOpen ? prev : { grid: true };
       });
     };
     sync();

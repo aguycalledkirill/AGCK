@@ -1,4 +1,4 @@
-export const STORAGE_KEY = 'agck.gallery.settings.v1';
+export const STORAGE_KEY = 'agck.gallery.settings.v2';
 
 export const EASING_OPTIONS = [
   'power1.inOut',
@@ -15,16 +15,22 @@ export const EASING_OPTIONS = [
 
 /** Factory defaults — used when nothing is saved yet, and by Reset to factory. */
 export const FACTORY_DEFAULTS = {
+  // Home grid (top-aligned columns)
+  gridColumns: 5,
+  gridGap: 112,
+  gridPad: 128,
+  columnWidth: 320,
+
   // Focus enlarge
   focusViewPad: 0.7,
   focusOffsetX: 0,
   focusOffsetY: 0,
 
   // Push / spacing
-  pushGap: 36,
-  overviewGap: 40,
+  pushGap: 56,
+  overviewGap: 96,
   packPasses: 4,
-  canvasClampPad: 200,
+  canvasClampPad: 240,
 
   // Motion
   flipDuration: 0.95,
@@ -35,8 +41,8 @@ export const FACTORY_DEFAULTS = {
   // Camera
   minScale: 0.18,
   maxScale: 3.2,
-  overviewFitX: 0.94,
-  overviewFitY: 0.9,
+  overviewFitX: 0.82,
+  overviewFitY: 0.78,
   wheelZoomIn: 1.08,
   wheelZoomOut: 0.92,
   panBoundsPad: 0.25,
@@ -53,13 +59,17 @@ export const FACTORY_DEFAULTS = {
 
 /** Touch / narrow viewport overrides layered under saved defaults. */
 export const MOBILE_DEFAULTS = {
+  gridColumns: 3,
+  gridGap: 64,
+  gridPad: 72,
+  columnWidth: 260,
   focusViewPad: 0.86,
   focusOffsetX: 0,
   focusOffsetY: 0,
-  pushGap: 24,
-  overviewGap: 28,
-  overviewFitX: 0.96,
-  overviewFitY: 0.88,
+  pushGap: 32,
+  overviewGap: 56,
+  overviewFitX: 0.9,
+  overviewFitY: 0.82,
   dragThreshold: 10,
   hoverScale: 1,
   focusShadowY: 18,
@@ -105,6 +115,16 @@ export function clearSavedDefaults() {
 
 export const SETTINGS_SECTIONS = [
   {
+    id: 'grid',
+    label: 'Home grid',
+    fields: [
+      { key: 'gridColumns', label: 'Columns', min: 2, max: 8, step: 1 },
+      { key: 'gridGap', label: 'Image gap', min: 16, max: 160, step: 4 },
+      { key: 'gridPad', label: 'Outer padding', min: 24, max: 200, step: 4 },
+      { key: 'columnWidth', label: 'Column width', min: 180, max: 520, step: 10 },
+    ],
+  },
+  {
     id: 'focus',
     label: 'Focus enlarge',
     fields: [
@@ -118,7 +138,7 @@ export const SETTINGS_SECTIONS = [
     label: 'Distances & push',
     fields: [
       { key: 'pushGap', label: 'Push gap', min: 0, max: 160, step: 2 },
-      { key: 'overviewGap', label: 'Overview padding', min: 0, max: 120, step: 2 },
+      { key: 'overviewGap', label: 'Overview padding', min: 0, max: 160, step: 2 },
       { key: 'packPasses', label: 'Pack passes', min: 1, max: 8, step: 1 },
       { key: 'canvasClampPad', label: 'Canvas clamp pad', min: 0, max: 600, step: 10 },
     ],

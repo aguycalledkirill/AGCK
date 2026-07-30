@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import gsap from 'gsap';
 import { Flip } from 'gsap/Flip';
-import { CANVAS, photos as photoData } from '../data/photos';
 import {
   clearSavedDefaults,
   getDeviceDefaults,
@@ -10,6 +9,7 @@ import {
   loadSavedDefaults,
   saveAsDefault,
 } from '../gallery/settings';
+import { buildTopAlignedHome } from '../gallery/homeLayout';
 import { buildFocusLayouts, clamp, computeFocusRect } from '../gallery/layout';
 import GalleryControls from './GalleryControls';
 import './PhotoGallery.css';
@@ -18,28 +18,37 @@ gsap.registerPlugin(Flip);
 gsap.ticker.fps(60);
 gsap.ticker.lagSmoothing(500, 33);
 
-const contentBounds = photoData.reduce(
-  (bounds, photo) => ({
-    minX: Math.min(bounds.minX, photo.x),
-    minY: Math.min(bounds.minY, photo.y),
-    maxX: Math.max(bounds.maxX, photo.x + photo.w),
-    maxY: Math.max(bounds.maxY, photo.y + photo.h),
-  }),
-  { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity },
-);
+const GRID_KEYS = new Set(['gridColumns', 'gridGap', 'gridPad', 'columnWidth']);
+
+function boundsFromHome(byId) {
+  return Object.values(byId).reduce(
+    (bounds, photo) => ({
+      minX: Math.min(bounds.minX, photo.x),
+      minY: Math.min(bounds.minY, photo.y),
+      maxX: Math.max(bounds.maxX, photo.x + photo.w),
+      maxY: Math.max(bounds.maxY, photo.y + photo.h),
+    }),
+    { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity },
+  );
+}
 
 function PhotoGallery() {
+  const [boot] = useState(() => buildTopAlignedHome(loadSavedDefaults()));
+
   const viewportRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef({ x: 0, y: 0, scale: 0.45 });
   const viewportSizeRef = useRef({ width: 0, height: 0, left: 0, top: 0 });
   const paintRafRef = useRef(0);
+  const canvasSizeRef = useRef(boot.canvas);
+  const contentBoundsRef = useRef(boundsFromHome(boot.byId));
   const layoutsRef = useRef(
-    Object.fromEntries(photoData.map((photo) => [photo.id, { ...photo }])),
+    Object.fromEntries(boot.photos.map((photo) => [photo.id, { ...photo }])),
   );
   const homeRef = useRef(
-    Object.fromEntries(photoData.map((photo) => [photo.id, { ...photo }])),
+    Object.fromEntries(boot.photos.map((photo) => [photo.id, { ...photo }])),
   );
+  const photoListRef = useRef(boot.photos);
   const flipBusyRef = useRef(false);
   const focusedIdRef = useRef(null);
   const settingsRef = useRef(loadSavedDefaults());
@@ -52,13 +61,15 @@ function PhotoGallery() {
   const [isMobile, setIsMobile] = useState(() => isMobileViewport());
   const [controlsOpen, setControlsOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState('');
+  const [photoList, setPhotoList] = useState(boot.photos);
   const [layouts, setLayouts] = useState(() =>
-    Object.fromEntries(photoData.map((photo) => [photo.id, { ...photo }])),
+    Object.fromEntries(boot.photos.map((photo) => [photo.id, { ...photo }])),
   );
   const [focusedId, setFocusedId] = useState(null);
   const [hintVisible, setHintVisible] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
+  const [canvasSize, setCanvasSize] = useState(boot.canvas);
 
   const dragRef = useRef(null);
   const pointersRef = useRef(new Map());
@@ -127,11 +138,12 @@ function PhotoGallery() {
         ({ width, height } = measureViewport());
       }
 
+      const canvas = canvasSizeRef.current;
       const scale = clamp(next.scale, cfg.minScale, cfg.maxScale);
       const pad = cfg.panBoundsPad;
-      const minX = width - CANVAS.width * scale - width * pad;
+      const minX = width - canvas.width * scale - width * pad;
       const maxX = width * pad;
-      const minY = height - CANVAS.height * scale - height * pad;
+      const minY = height - canvas.height * scale - height * pad;
       const maxY = height * pad;
 
       cameraRef.current = {
@@ -201,14 +213,15 @@ function PhotoGallery() {
       ({ width, height } = measureViewport());
     }
 
-    const contentW = contentBounds.maxX - contentBounds.minX + cfg.overviewGap * 2;
-    const contentH = contentBounds.maxY - contentBounds.minY + cfg.overviewGap * 2;
+    const bounds = contentBoundsRef.current;
+    const contentW = bounds.maxX - bounds.minX + cfg.overviewGap * 2;
+    const contentH = bounds.maxY - bounds.minY + cfg.overviewGap * 2;
     const scale = Math.min(
       (width * cfg.overviewFitX) / contentW,
       (height * cfg.overviewFitY) / contentH,
     );
-    const centerX = (contentBounds.minX + contentBounds.maxX) / 2;
-    const centerY = (contentBounds.minY + contentBounds.maxY) / 2;
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
     return {
       x: width / 2 - centerX * scale,
       y: height / 2 - centerY * scale,
@@ -303,6 +316,7 @@ function PhotoGallery() {
           homeRef.current,
           layoutsRef.current,
           cfg,
+          canvasSizeRef.current,
         );
 
         if (cfg.staggerByDistance) {
@@ -338,7 +352,7 @@ function PhotoGallery() {
     flipStaggerRef.current = null;
     runFlip(() => {
       const next = Object.fromEntries(
-        photoData.map((photo) => [photo.id, { ...homeRef.current[photo.id] }]),
+        photoListRef.current.map((photo) => [photo.id, { ...homeRef.current[photo.id] }]),
       );
       focusedIdRef.current = null;
       setFocusedId(null);
@@ -347,14 +361,50 @@ function PhotoGallery() {
     applyCamera(getOverviewCamera(), { immediate: true });
   }, [applyCamera, applyLayouts, getOverviewCamera, runFlip]);
 
-  const updateSetting = useCallback((key, value) => {
-    setSettings((prev) => {
-      const next = { ...prev, [key]: value };
-      settingsRef.current = next;
-      return next;
-    });
-    setSavedNotice('');
-  }, []);
+  const applyHomeLayout = useCallback(
+    (cfg, { animate = false } = {}) => {
+      const home = buildTopAlignedHome(cfg);
+      canvasSizeRef.current = home.canvas;
+      contentBoundsRef.current = boundsFromHome(home.byId);
+      photoListRef.current = home.photos;
+      homeRef.current = Object.fromEntries(home.photos.map((photo) => [photo.id, { ...photo }]));
+      setCanvasSize(home.canvas);
+      setPhotoList(home.photos);
+
+      const nextLayouts = Object.fromEntries(home.photos.map((photo) => [photo.id, { ...photo }]));
+
+      if (animate && !focusedIdRef.current) {
+        runFlip(() => {
+          focusedIdRef.current = null;
+          setFocusedId(null);
+          applyLayouts(nextLayouts);
+        });
+        applyCamera(getOverviewCamera(), { immediate: true });
+      } else if (!focusedIdRef.current) {
+        applyLayouts(nextLayouts);
+        applyCamera(getOverviewCamera(), { immediate: true });
+      } else {
+        // Keep focus layout; only refresh home targets for later Overview.
+        homeRef.current = Object.fromEntries(home.photos.map((photo) => [photo.id, { ...photo }]));
+      }
+    },
+    [applyCamera, applyLayouts, getOverviewCamera, runFlip],
+  );
+
+  const updateSetting = useCallback(
+    (key, value) => {
+      setSettings((prev) => {
+        const next = { ...prev, [key]: value };
+        settingsRef.current = next;
+        if (GRID_KEYS.has(key)) {
+          queueMicrotask(() => applyHomeLayout(next, { animate: true }));
+        }
+        return next;
+      });
+      setSavedNotice('');
+    },
+    [applyHomeLayout],
+  );
 
   const handleSetDefault = useCallback(() => {
     saveAsDefault(settingsRef.current);
@@ -366,8 +416,8 @@ function PhotoGallery() {
     settingsRef.current = saved;
     setSettings(saved);
     setSavedNotice('Loaded default');
-    if (!focusedIdRef.current) fitOverview();
-  }, [fitOverview]);
+    applyHomeLayout(saved, { animate: true });
+  }, [applyHomeLayout]);
 
   const handleResetFactory = useCallback(() => {
     clearSavedDefaults();
@@ -375,8 +425,8 @@ function PhotoGallery() {
     settingsRef.current = next;
     setSettings(next);
     setSavedNotice('Factory reset');
-    if (!focusedIdRef.current) fitOverview();
-  }, [fitOverview]);
+    applyHomeLayout(next, { animate: true });
+  }, [applyHomeLayout]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => fitOverview());
@@ -581,11 +631,11 @@ function PhotoGallery() {
           ref={canvasRef}
           className="gallery-canvas"
           style={{
-            width: CANVAS.width,
-            height: CANVAS.height,
+            width: canvasSize.width,
+            height: canvasSize.height,
           }}
         >
-          {photoData.map((photo) => {
+          {photoList.map((photo) => {
             const layout = layouts[photo.id] ?? photo;
             return (
               <button

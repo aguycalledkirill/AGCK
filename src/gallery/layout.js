@@ -1,5 +1,3 @@
-import { CANVAS, photos as photoData } from '../data/photos';
-
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -27,7 +25,7 @@ function dominantSide(home, focusRect) {
   return dy >= 0 ? 'south' : 'north';
 }
 
-function pushClearOf(home, focusRect, settings) {
+function pushClearOf(home, focusRect, settings, canvas) {
   const side = dominantSide(home, focusRect);
   const gap = settings.pushGap;
   const pad = settings.canvasClampPad;
@@ -47,8 +45,8 @@ function pushClearOf(home, focusRect, settings) {
   return {
     id: home.id,
     side,
-    x: clamp(x, -pad, CANVAS.width - home.w + pad),
-    y: clamp(y, -pad, CANVAS.height - home.h + pad),
+    x: clamp(x, -pad, canvas.width - home.w + pad),
+    y: clamp(y, -pad, canvas.height - home.h + pad),
     w: home.w,
     h: home.h,
   };
@@ -133,23 +131,24 @@ function packSameSide(pushed, settings) {
   return packed;
 }
 
-export function buildFocusLayouts(photoId, focusRect, homes, currents, settings) {
+export function buildFocusLayouts(photoId, focusRect, homes, currents, settings, canvas) {
   const gap = settings.pushGap;
   const next = {};
   const pushedById = new Map();
+  const ids = Object.keys(homes);
 
-  for (const photo of photoData) {
-    const base = homes[photo.id];
-    if (photo.id === photoId) {
-      next[photo.id] = { ...base, ...focusRect };
+  for (const id of ids) {
+    const base = homes[id];
+    if (id === photoId) {
+      next[id] = { ...base, ...focusRect };
       continue;
     }
 
-    const current = currents[photo.id] ?? base;
+    const current = currents[id] ?? base;
     if (rectsOverlap(current, focusRect, gap) || rectsOverlap(base, focusRect, gap)) {
-      pushedById.set(photo.id, pushClearOf(base, focusRect, settings));
+      pushedById.set(id, pushClearOf(base, focusRect, settings, canvas));
     } else {
-      next[photo.id] = { ...base };
+      next[id] = { ...base };
     }
   }
 
@@ -162,9 +161,9 @@ export function buildFocusLayouts(photoId, focusRect, homes, currents, settings)
       pushedById.set(card.id, card);
     }
 
-    for (const photo of photoData) {
-      if (photo.id === photoId || pushedById.has(photo.id)) continue;
-      const staying = next[photo.id];
+    for (const id of ids) {
+      if (id === photoId || pushedById.has(id)) continue;
+      const staying = next[id];
       if (!staying) continue;
 
       let hits = rectsOverlap(staying, focusRect, gap);
@@ -178,8 +177,8 @@ export function buildFocusLayouts(photoId, focusRect, homes, currents, settings)
       }
 
       if (hits) {
-        pushedById.set(photo.id, pushClearOf(homes[photo.id], focusRect, settings));
-        delete next[photo.id];
+        pushedById.set(id, pushClearOf(homes[id], focusRect, settings, canvas));
+        delete next[id];
         grew = true;
       }
     }
