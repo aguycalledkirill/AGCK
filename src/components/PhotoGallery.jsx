@@ -11,8 +11,9 @@ const MIN_SCALE = 0.18;
 const MAX_SCALE = 3.2;
 const GAP = 40;
 const FOCUS_VIEW_PAD = 0.7;
-const SCATTER_PAD = 36;
+const PUSH_GAP = 36;
 const FLIP_DURATION = 0.95;
+const FLIP_STAGGER = 0.22;
 
 const contentBounds = photoData.reduce(
   (bounds, photo) => ({
@@ -37,39 +38,188 @@ function rectsOverlap(a, b, pad = 0) {
   );
 }
 
-function randomBetween(min, max) {
-  return min + Math.random() * (max - min);
-}
-
-/** Push a card clear of the focus rect, with random outward jitter. */
-function scatterClearOf(home, focusRect) {
+function dominantSide(home, focusRect) {
   const cardCx = home.x + home.w / 2;
   const cardCy = home.y + home.h / 2;
   const focusCx = focusRect.x + focusRect.w / 2;
   const focusCy = focusRect.y + focusRect.h / 2;
+  const dx = cardCx - focusCx;
+  const dy = cardCy - focusCy;
 
-  let angle = Math.atan2(cardCy - focusCy, cardCx - focusCx);
-  if (!Number.isFinite(angle) || (cardCx === focusCx && cardCy === focusCy)) {
-    angle = randomBetween(0, Math.PI * 2);
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? 'east' : 'west';
   }
-  angle += randomBetween(-0.75, 0.75);
+  return dy >= 0 ? 'south' : 'north';
+}
 
-  const halfW = focusRect.w / 2 + home.w / 2 + SCATTER_PAD;
-  const halfH = focusRect.h / 2 + home.h / 2 + SCATTER_PAD;
-  const dx = Math.cos(angle);
-  const dy = Math.sin(angle);
+/** Axis-only push clear of the focus rect (N/S/E/W). */
+function pushClearOf(home, focusRect) {
+  const side = dominantSide(home, focusRect);
+  let x = home.x;
+  let y = home.y;
 
-  // Distance along the ray until the card clears the padded focus AABB.
-  const tx = Math.abs(dx) < 1e-4 ? Infinity : halfW / Math.abs(dx);
-  const ty = Math.abs(dy) < 1e-4 ? Infinity : halfH / Math.abs(dy);
-  const clearDist = Math.min(tx, ty) + randomBetween(24, 120);
+  if (side === 'east') {
+    x = focusRect.x + focusRect.w + PUSH_GAP;
+  } else if (side === 'west') {
+    x = focusRect.x - home.w - PUSH_GAP;
+  } else if (side === 'south') {
+    y = focusRect.y + focusRect.h + PUSH_GAP;
+  } else {
+    y = focusRect.y - home.h - PUSH_GAP;
+  }
 
   return {
-    x: clamp(focusCx + dx * clearDist - home.w / 2, -200, CANVAS.width - home.w + 200),
-    y: clamp(focusCy + dy * clearDist - home.h / 2, -200, CANVAS.height - home.h + 200),
+    id: home.id,
+    side,
+    x: clamp(x, -200, CANVAS.width - home.w + 200),
+    y: clamp(y, -200, CANVAS.height - home.h + 200),
     w: home.w,
     h: home.h,
   };
+}
+
+/** Nudge same-side cards apart with a consistent gutter. */
+function packSameSide(pushed) {
+  const bySide = { north: [], south: [], east: [], west: [] };
+  for (const card of pushed) {
+    bySide[card.side].push({ ...card });
+  }
+
+  for (const side of Object.keys(bySide)) {
+    const group = bySide[side];
+    if (group.length < 2) continue;
+
+    if (side === 'north' || side === 'south') {
+      group.sort((a, b) => a.x - b.x);
+      for (let i = 1; i < group.length; i += 1) {
+        const prev = group[i - 1];
+        const minX = prev.x + prev.w + PUSH_GAP;
+        if (group[i].x < minX) group[i].x = minX;
+      }
+      for (let i = 1; i < group.length; i += 1) {
+        for (let j = 0; j < i; j += 1) {
+          if (!rectsOverlap(group[i], group[j])) continue;
+          if (side === 'south') {
+            group[i].y = Math.max(group[i].y, group[j].y + group[j].h + PUSH_GAP);
+          } else {
+            group[i].y = Math.min(group[i].y, group[j].y - group[i].h - PUSH_GAP);
+          }
+        }
+      }
+    } else {
+      group.sort((a, b) => a.y - b.y);
+      for (let i = 1; i < group.length; i += 1) {
+        const prev = group[i - 1];
+        const minY = prev.y + prev.h + PUSH_GAP;
+        if (group[i].y < minY) group[i].y = minY;
+      }
+      for (let i = 1; i < group.length; i += 1) {
+        for (let j = 0; j < i; j += 1) {
+          if (!rectsOverlap(group[i], group[j])) continue;
+          if (side === 'east') {
+            group[i].x = Math.max(group[i].x, group[j].x + group[j].w + PUSH_GAP);
+          } else {
+            group[i].x = Math.min(group[i].x, group[j].x - group[i].w - PUSH_GAP);
+          }
+        }
+      }
+    }
+  }
+
+  const packed = [
+    ...bySide.north,
+    ...bySide.south,
+    ...bySide.east,
+    ...bySide.west,
+  ];
+
+  // Resolve leftover overlaps across different sides by pushing the second card further out.
+  for (let pass = 0; pass < 4; pass += 1) {
+    for (let i = 0; i < packed.length; i += 1) {
+      for (let j = i + 1; j < packed.length; j += 1) {
+        const a = packed[i];
+        const b = packed[j];
+        if (!rectsOverlap(a, b, 0)) continue;
+
+        if (b.side === 'east') {
+          b.x = Math.max(b.x, a.x + a.w + PUSH_GAP);
+        } else if (b.side === 'west') {
+          b.x = Math.min(b.x, a.x - b.w - PUSH_GAP);
+        } else if (b.side === 'south') {
+          b.y = Math.max(b.y, a.y + a.h + PUSH_GAP);
+        } else {
+          b.y = Math.min(b.y, a.y - b.h - PUSH_GAP);
+        }
+      }
+    }
+  }
+
+  return packed;
+}
+
+function buildFocusLayouts(photoId, focusRect, homes, currents) {
+  const next = {};
+  const pushedById = new Map();
+
+  for (const photo of photoData) {
+    const base = homes[photo.id];
+    if (photo.id === photoId) {
+      next[photo.id] = { ...base, ...focusRect };
+      continue;
+    }
+
+    const current = currents[photo.id] ?? base;
+    if (rectsOverlap(current, focusRect, PUSH_GAP) || rectsOverlap(base, focusRect, PUSH_GAP)) {
+      pushedById.set(photo.id, pushClearOf(base, focusRect));
+    } else {
+      next[photo.id] = { ...base };
+    }
+  }
+
+  // Cascade: if a home-staying card now collides with a pushed card, push it too.
+  let grew = true;
+  while (grew) {
+    grew = false;
+    const packed = packSameSide([...pushedById.values()]);
+    pushedById.clear();
+    for (const card of packed) {
+      pushedById.set(card.id, card);
+    }
+
+    for (const photo of photoData) {
+      if (photo.id === photoId || pushedById.has(photo.id)) continue;
+      const staying = next[photo.id];
+      if (!staying) continue;
+
+      let hits = rectsOverlap(staying, focusRect, PUSH_GAP);
+      if (!hits) {
+        for (const card of pushedById.values()) {
+          if (rectsOverlap(staying, card, PUSH_GAP)) {
+            hits = true;
+            break;
+          }
+        }
+      }
+
+      if (hits) {
+        pushedById.set(photo.id, pushClearOf(homes[photo.id], focusRect));
+        delete next[photo.id];
+        grew = true;
+      }
+    }
+  }
+
+  for (const card of packSameSide([...pushedById.values()])) {
+    next[card.id] = {
+      id: card.id,
+      x: card.x,
+      y: card.y,
+      w: card.w,
+      h: card.h,
+    };
+  }
+
+  return next;
 }
 
 function PhotoGallery() {
@@ -167,6 +317,8 @@ function PhotoGallery() {
     [applyCamera],
   );
 
+  const flipStaggerRef = useRef(null);
+
   const applyLayouts = useCallback((nextLayouts) => {
     layoutsRef.current = nextLayouts;
     setLayouts(nextLayouts);
@@ -183,14 +335,19 @@ function PhotoGallery() {
       mutate();
     });
 
+    const staggerFn = flipStaggerRef.current;
+
     Flip.from(state, {
       absolute: true,
       duration: FLIP_DURATION,
       ease: 'power3.inOut',
-      stagger: { amount: 0.22, from: 'random' },
+      stagger: staggerFn
+        ? (index, target) => staggerFn(index, target)
+        : { amount: FLIP_STAGGER, from: 'center' },
       nested: true,
       onComplete: () => {
         flipBusyRef.current = false;
+        flipStaggerRef.current = null;
       },
     });
   }, []);
@@ -227,22 +384,34 @@ function PhotoGallery() {
         h: focusH,
       };
 
-      runFlip(() => {
-        const next = {};
-        for (const photo of photoData) {
-          const base = homeRef.current[photo.id];
-          if (photo.id === photoId) {
-            next[photo.id] = { ...base, ...focusRect };
-            continue;
-          }
+      const focusCx = focusRect.x + focusRect.w / 2;
+      const focusCy = focusRect.y + focusRect.h / 2;
 
-          const current = layoutsRef.current[photo.id] ?? base;
-          if (rectsOverlap(current, focusRect, SCATTER_PAD)) {
-            next[photo.id] = { ...base, ...scatterClearOf(base, focusRect) };
-          } else {
-            next[photo.id] = { ...base };
-          }
+      runFlip(() => {
+        const next = buildFocusLayouts(
+          photoId,
+          focusRect,
+          homeRef.current,
+          layoutsRef.current,
+        );
+
+        let maxDist = 1;
+        const distances = {};
+        for (const id of Object.keys(next)) {
+          const layout = next[id];
+          const dist = Math.hypot(
+            layout.x + layout.w / 2 - focusCx,
+            layout.y + layout.h / 2 - focusCy,
+          );
+          distances[id] = dist;
+          maxDist = Math.max(maxDist, dist);
         }
+
+        flipStaggerRef.current = (_index, target) => {
+          const id = target.getAttribute('data-photo-id');
+          return ((distances[id] ?? 0) / maxDist) * FLIP_STAGGER;
+        };
+
         focusedIdRef.current = photoId;
         setFocusedId(photoId);
         applyLayouts(next);
@@ -252,6 +421,7 @@ function PhotoGallery() {
   );
 
   const goOverview = useCallback(() => {
+    flipStaggerRef.current = null;
     runFlip(() => {
       const next = Object.fromEntries(
         photoData.map((photo) => [photo.id, { ...homeRef.current[photo.id] }]),
