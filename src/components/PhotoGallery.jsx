@@ -14,6 +14,8 @@ import GalleryControls from './GalleryControls';
 import './PhotoGallery.css';
 
 gsap.registerPlugin(Flip);
+gsap.ticker.fps(60);
+gsap.ticker.lagSmoothing(500, 33);
 
 const contentBounds = photoData.reduce(
   (bounds, photo) => ({
@@ -29,6 +31,8 @@ function PhotoGallery() {
   const viewportRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef({ x: 0, y: 0, scale: 0.45 });
+  const viewportSizeRef = useRef({ width: 0, height: 0, left: 0, top: 0 });
+  const paintRafRef = useRef(0);
   const layoutsRef = useRef(
     Object.fromEntries(photoData.map((photo) => [photo.id, { ...photo }])),
   );
@@ -43,13 +47,13 @@ function PhotoGallery() {
   const [settings, setSettings] = useState(() => loadSavedDefaults());
   const [controlsOpen, setControlsOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState('');
-  const [camera, setCamera] = useState({ x: 0, y: 0, scale: 0.45 });
   const [layouts, setLayouts] = useState(() =>
     Object.fromEntries(photoData.map((photo) => [photo.id, { ...photo }])),
   );
   const [focusedId, setFocusedId] = useState(null);
   const [hintVisible, setHintVisible] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
+  const [isFlipping, setIsFlipping] = useState(false);
 
   const dragRef = useRef(null);
   const pointersRef = useRef(new Map());
@@ -70,39 +74,75 @@ function PhotoGallery() {
     [settings],
   );
 
-  const applyCamera = useCallback((next) => {
+  const measureViewport = useCallback(() => {
     const viewport = viewportRef.current;
-    const cfg = settingsRef.current;
-    if (!viewport) {
-      cameraRef.current = next;
-      setCamera(next);
-      return;
-    }
-
-    const { width, height } = viewport.getBoundingClientRect();
-    const scale = clamp(next.scale, cfg.minScale, cfg.maxScale);
-    const pad = cfg.panBoundsPad;
-    const minX = width - CANVAS.width * scale - width * pad;
-    const maxX = width * pad;
-    const minY = height - CANVAS.height * scale - height * pad;
-    const maxY = height * pad;
-
-    const clamped = {
-      x: clamp(next.x, minX, maxX),
-      y: clamp(next.y, minY, maxY),
-      scale,
+    if (!viewport) return viewportSizeRef.current;
+    const rect = viewport.getBoundingClientRect();
+    viewportSizeRef.current = {
+      width: rect.width,
+      height: rect.height,
+      left: rect.left,
+      top: rect.top,
     };
-
-    cameraRef.current = clamped;
-    setCamera(clamped);
+    return viewportSizeRef.current;
   }, []);
 
-  const getOverviewCamera = useCallback(() => {
-    const viewport = viewportRef.current;
-    const cfg = settingsRef.current;
-    if (!viewport) return cameraRef.current;
+  const paintCamera = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const { x, y, scale } = cameraRef.current;
+    canvas.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) scale(${scale})`;
+  }, []);
 
-    const { width, height } = viewport.getBoundingClientRect();
+  const schedulePaint = useCallback(() => {
+    if (paintRafRef.current) return;
+    paintRafRef.current = requestAnimationFrame(() => {
+      paintRafRef.current = 0;
+      paintCamera();
+    });
+  }, [paintCamera]);
+
+  const applyCamera = useCallback(
+    (next, { immediate = false } = {}) => {
+      const cfg = settingsRef.current;
+      let { width, height } = viewportSizeRef.current;
+      if (!width || !height) {
+        ({ width, height } = measureViewport());
+      }
+
+      const scale = clamp(next.scale, cfg.minScale, cfg.maxScale);
+      const pad = cfg.panBoundsPad;
+      const minX = width - CANVAS.width * scale - width * pad;
+      const maxX = width * pad;
+      const minY = height - CANVAS.height * scale - height * pad;
+      const maxY = height * pad;
+
+      cameraRef.current = {
+        x: clamp(next.x, minX, maxX),
+        y: clamp(next.y, minY, maxY),
+        scale,
+      };
+
+      if (immediate) {
+        if (paintRafRef.current) {
+          cancelAnimationFrame(paintRafRef.current);
+          paintRafRef.current = 0;
+        }
+        paintCamera();
+      } else {
+        schedulePaint();
+      }
+    },
+    [measureViewport, paintCamera, schedulePaint],
+  );
+
+  const getOverviewCamera = useCallback(() => {
+    const cfg = settingsRef.current;
+    let { width, height } = viewportSizeRef.current;
+    if (!width || !height) {
+      ({ width, height } = measureViewport());
+    }
+
     const contentW = contentBounds.maxX - contentBounds.minX + cfg.overviewGap * 2;
     const contentH = contentBounds.maxY - contentBounds.minY + cfg.overviewGap * 2;
     const scale = Math.min(
@@ -116,23 +156,25 @@ function PhotoGallery() {
       y: height / 2 - centerY * scale,
       scale,
     };
-  }, []);
+  }, [measureViewport]);
 
   const fitOverview = useCallback(() => {
-    applyCamera(getOverviewCamera());
-  }, [applyCamera, getOverviewCamera]);
+    measureViewport();
+    applyCamera(getOverviewCamera(), { immediate: true });
+  }, [applyCamera, getOverviewCamera, measureViewport]);
 
   const zoomAt = useCallback(
     (clientX, clientY, factor) => {
-      const viewport = viewportRef.current;
       const cfg = settingsRef.current;
-      if (!viewport) return;
+      let { width, height, left, top } = viewportSizeRef.current;
+      if (!width || !height) {
+        ({ width, height, left, top } = measureViewport());
+      }
 
-      const rect = viewport.getBoundingClientRect();
       const { x, y, scale } = cameraRef.current;
       const nextScale = clamp(scale * factor, cfg.minScale, cfg.maxScale);
-      const px = clientX - rect.left;
-      const py = clientY - rect.top;
+      const px = clientX - left;
+      const py = clientY - top;
       const worldX = (px - x) / scale;
       const worldY = (py - y) / scale;
 
@@ -142,7 +184,7 @@ function PhotoGallery() {
         scale: nextScale,
       });
     },
-    [applyCamera],
+    [applyCamera, measureViewport],
   );
 
   const applyLayouts = useCallback((nextLayouts) => {
@@ -153,9 +195,10 @@ function PhotoGallery() {
   const runFlip = useCallback((mutate) => {
     if (flipBusyRef.current || !canvasRef.current) return;
     flipBusyRef.current = true;
+    setIsFlipping(true);
 
     const nodes = canvasRef.current.querySelectorAll('.gallery-photo');
-    const state = Flip.getState(nodes);
+    const state = Flip.getState(nodes, { props: 'borderRadius,boxShadow' });
     const cfg = settingsRef.current;
 
     flushSync(() => {
@@ -168,6 +211,7 @@ function PhotoGallery() {
       absolute: true,
       duration: cfg.flipDuration,
       ease: cfg.flipEase,
+      force3D: true,
       stagger: staggerFn
         ? (index, target) => staggerFn(index, target)
         : { amount: cfg.flipStagger, from: 'center' },
@@ -175,6 +219,7 @@ function PhotoGallery() {
       onComplete: () => {
         flipBusyRef.current = false;
         flipStaggerRef.current = null;
+        setIsFlipping(false);
       },
     });
   }, []);
@@ -188,7 +233,7 @@ function PhotoGallery() {
       if (!home) return;
 
       const cfg = settingsRef.current;
-      const size = viewport.getBoundingClientRect();
+      const size = measureViewport();
       const focusRect = computeFocusRect(home, size, cameraRef.current, cfg);
       const focusCx = focusRect.x + focusRect.w / 2;
       const focusCy = focusRect.y + focusRect.h / 2;
@@ -228,7 +273,7 @@ function PhotoGallery() {
         applyLayouts(next);
       });
     },
-    [applyLayouts, runFlip],
+    [applyLayouts, measureViewport, runFlip],
   );
 
   const goOverview = useCallback(() => {
@@ -241,7 +286,7 @@ function PhotoGallery() {
       setFocusedId(null);
       applyLayouts(next);
     });
-    applyCamera(getOverviewCamera());
+    applyCamera(getOverviewCamera(), { immediate: true });
   }, [applyCamera, applyLayouts, getOverviewCamera, runFlip]);
 
   const updateSetting = useCallback((key, value) => {
@@ -277,14 +322,16 @@ function PhotoGallery() {
   useEffect(() => {
     const frame = requestAnimationFrame(() => fitOverview());
     const onResize = () => {
+      measureViewport();
       if (!focusedIdRef.current) fitOverview();
     };
     window.addEventListener('resize', onResize);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', onResize);
+      if (paintRafRef.current) cancelAnimationFrame(paintRafRef.current);
     };
-  }, [fitOverview]);
+  }, [fitOverview, measureViewport]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -317,6 +364,7 @@ function PhotoGallery() {
 
     setHintVisible(false);
     movedRef.current = false;
+    measureViewport();
 
     const photoEl = event.target.closest?.('[data-photo-id]');
     pressTargetRef.current = photoEl?.getAttribute('data-photo-id') ?? null;
@@ -422,7 +470,10 @@ function PhotoGallery() {
   };
 
   return (
-    <div className="gallery" style={appearanceStyle}>
+    <div
+      className={`gallery ${isDragging ? 'is-dragging' : ''} ${isFlipping ? 'is-flipping' : ''}`}
+      style={appearanceStyle}
+    >
       <header className="gallery-chrome">
         <a className="gallery-brand" href="/">
           AGCK
@@ -447,7 +498,6 @@ function PhotoGallery() {
           style={{
             width: CANVAS.width,
             height: CANVAS.height,
-            transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.scale})`,
           }}
         >
           {photoData.map((photo) => {

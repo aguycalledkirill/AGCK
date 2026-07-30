@@ -8,6 +8,7 @@
   color: #141414;
   touch-action: none;
   user-select: none;
+  contain: layout style;
 }
 
 .gallery-chrome {
@@ -67,9 +68,12 @@
   inset: 0;
   cursor: grab;
   overflow: hidden;
+  contain: layout style;
+  touch-action: none;
 }
 
-.gallery-viewport.is-dragging {
+.gallery-viewport.is-dragging,
+.gallery.is-dragging .gallery-viewport {
   cursor: grabbing;
 }
 
@@ -79,6 +83,9 @@
   left: 0;
   transform-origin: 0 0;
   will-change: transform;
+  transform: translate3d(0, 0, 0) scale(0.45);
+  backface-visibility: hidden;
+  contain: layout style;
 }
 
 .gallery-photo {
@@ -92,10 +99,12 @@
   appearance: none;
   border-radius: var(--photo-radius, 0px);
   -webkit-tap-highlight-color: transparent;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  contain: layout style paint;
+  content-visibility: auto;
   transition:
-    box-shadow 320ms ease,
-    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 320ms ease,
+    box-shadow 220ms ease,
     border-radius 180ms ease;
 }
 
@@ -105,21 +114,35 @@
   object-fit: cover;
   display: block;
   pointer-events: none;
-  transform: scale(1.001);
-  transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateZ(0) scale(1.001);
+  backface-visibility: hidden;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .gallery-photo:hover img {
-  transform: scale(var(--photo-hover-scale, 1.04));
+  transform: translateZ(0) scale(var(--photo-hover-scale, 1.04));
 }
 
 .gallery-photo.is-focused {
   box-shadow: var(--focus-shadow, 0 28px 80px rgba(20, 20, 20, 0.28));
   z-index: 5;
+  content-visibility: visible;
 }
 
 .gallery-photo.is-focused img {
-  transform: none;
+  transform: translateZ(0);
+}
+
+.gallery.is-dragging .gallery-photo,
+.gallery.is-flipping .gallery-photo,
+.gallery.is-dragging .gallery-photo img,
+.gallery.is-flipping .gallery-photo img {
+  transition: none !important;
+  pointer-events: none;
+}
+
+.gallery.is-dragging .gallery-photo {
+  pointer-events: none;
 }
 
 .gallery-hint {
