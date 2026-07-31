@@ -6,6 +6,7 @@ export const STORAGE_KEY_LEGACY = 'agck.gallery.settings.v3';
 export const HINT_SEEN_KEY = 'agck.gallery.hintSeen.v1';
 
 export const EASING_OPTIONS = [
+  'agckRoam',
   'power1.inOut',
   'power2.inOut',
   'power3.inOut',
@@ -65,7 +66,7 @@ export const FACTORY_DEFAULTS = {
   // Motion
   flipDuration: 0.95,
   flipStagger: 0.22,
-  flipEase: 'power3.inOut',
+  flipEase: 'agckRoam',
   staggerByDistance: true,
 
   // Camera — fit page width, top-align (not whole tall canvas)
@@ -80,9 +81,10 @@ export const FACTORY_DEFAULTS = {
 
   // Roam presence (composed view offset — not written into cameraRef)
   mouseFollowStrength: 36,
-  mouseFollowLerp: 0.1,
+  mouseFollowDuration: 0.45,
   idleDriftAmp: 6,
   desktopInertia: true,
+  inertiaResistance: 22,
 
   // Appearance
   borderRadius: 0,
@@ -119,9 +121,10 @@ export const MOBILE_DEFAULTS = {
   flipStagger: 0.16,
   cameraTweenDuration: 0.85,
   mouseFollowStrength: 0,
-  mouseFollowLerp: 0.12,
+  mouseFollowDuration: 0.4,
   idleDriftAmp: 0,
   desktopInertia: false,
+  inertiaResistance: 28,
 };
 
 export function isMobileViewport() {
@@ -283,9 +286,10 @@ export const SETTINGS_SECTIONS = [
       { key: 'panBoundsPad', label: 'Pan bounds pad', min: 0, max: 0.5, step: 0.01 },
       { key: 'dragThreshold', label: 'Drag threshold', min: 1, max: 20, step: 1 },
       { key: 'mouseFollowStrength', label: 'Mouse follow', min: 0, max: 80, step: 1 },
-      { key: 'mouseFollowLerp', label: 'Follow lerp', min: 0.02, max: 0.4, step: 0.01 },
+      { key: 'mouseFollowDuration', label: 'Follow duration', min: 0.1, max: 1.2, step: 0.05 },
       { key: 'idleDriftAmp', label: 'Idle drift', min: 0, max: 24, step: 1 },
       { key: 'desktopInertia', label: 'Desktop inertia', type: 'toggle' },
+      { key: 'inertiaResistance', label: 'Throw resistance', min: 8, max: 60, step: 1 },
     ],
   },
   {

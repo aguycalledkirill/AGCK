@@ -90,6 +90,12 @@
   letter-spacing: -0.02em;
   line-height: 1.15;
   color: #000;
+  overflow: visible;
+}
+
+.gallery-focus-title .gallery-focus-char {
+  display: inline-block;
+  will-change: transform, opacity;
 }
 
 .gallery-photo {
