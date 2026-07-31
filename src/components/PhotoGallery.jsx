@@ -56,6 +56,9 @@ function motionConfig(cfg) {
       flipDuration: 0.01,
       flipStagger: 0,
       cameraTweenDuration: 0.01,
+      mouseFollowStrength: 0,
+      idleDriftAmp: 0,
+      desktopInertia: false,
     };
   }
   return cfg;
@@ -90,6 +93,13 @@ function PhotoGallery() {
   const inertiaRafRef = useRef(0);
   const isMobileRef = useRef(isMobileViewport());
   const loadedIdsRef = useRef(new Set());
+  const viewOffsetRef = useRef({ x: 0, y: 0 });
+  const viewOffsetTargetRef = useRef({ x: 0, y: 0 });
+  const cursorNormRef = useRef({ x: 0, y: 0 });
+  const lastPointerActivityRef = useRef(0);
+  const roamRafRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const inertiaActiveRef = useRef(false);
 
   const [settings, setSettings] = useState(() => loadSavedDefaults());
   const [isMobile, setIsMobile] = useState(() => isMobileViewport());
@@ -169,7 +179,9 @@ function PhotoGallery() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const { x, y, scale } = cameraRef.current;
-    canvas.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) scale(${scale})`;
+    const ox = viewOffsetRef.current.x;
+    const oy = viewOffsetRef.current.y;
+    canvas.style.transform = `translate3d(${(x + ox).toFixed(2)}px, ${(y + oy).toFixed(2)}px, 0) scale(${scale})`;
   }, []);
 
   const schedulePaint = useCallback(() => {
@@ -179,6 +191,15 @@ function PhotoGallery() {
       paintCamera();
     });
   }, [paintCamera]);
+
+  const hardZeroViewOffset = useCallback(() => {
+    viewOffsetRef.current = { x: 0, y: 0 };
+    viewOffsetTargetRef.current = { x: 0, y: 0 };
+  }, []);
+
+  const notePointerActivity = useCallback(() => {
+    lastPointerActivityRef.current = performance.now();
+  }, []);
 
   const applyCamera = useCallback(
     (next, { immediate = false } = {}) => {
@@ -283,27 +304,38 @@ function PhotoGallery() {
       cancelAnimationFrame(inertiaRafRef.current);
       inertiaRafRef.current = 0;
     }
+    inertiaActiveRef.current = false;
     velocityRef.current = { vx: 0, vy: 0, t: 0 };
   }, []);
 
   const startInertia = useCallback(() => {
-    if (!isMobileRef.current) return;
+    const cfg = motionConfig(settingsRef.current);
+    const mobile = isMobileRef.current;
+    if (!mobile && !cfg.desktopInertia) return;
+
     const { vx, vy } = velocityRef.current;
-    if (Math.hypot(vx, vy) < 0.35) return;
+    const startThreshold = mobile ? 0.35 : 0.22;
+    if (Math.hypot(vx, vy) < startThreshold) return;
+
+    hardZeroViewOffset();
+    inertiaActiveRef.current = true;
 
     let last = performance.now();
     let curVx = vx;
     let curVy = vy;
+    const baseFriction = mobile ? 0.92 : 0.945;
+    const stopThreshold = mobile ? 0.12 : 0.08;
 
     const tick = (now) => {
       const dt = Math.min(32, now - last);
       last = now;
-      const friction = Math.pow(0.92, dt / 16.67);
+      const friction = Math.pow(baseFriction, dt / 16.67);
       curVx *= friction;
       curVy *= friction;
 
-      if (Math.hypot(curVx, curVy) < 0.12) {
+      if (Math.hypot(curVx, curVy) < stopThreshold) {
         inertiaRafRef.current = 0;
+        inertiaActiveRef.current = false;
         return;
       }
 
@@ -317,7 +349,7 @@ function PhotoGallery() {
     };
 
     inertiaRafRef.current = requestAnimationFrame(tick);
-  }, [applyCamera]);
+  }, [applyCamera, hardZeroViewOffset]);
 
   const getOverviewCamera = useCallback(() => {
     const cfg = settingsRef.current;
@@ -454,6 +486,7 @@ function PhotoGallery() {
       const { focusRect, camera } = computeCanonicalFocus(home, size, cfg);
       stopInertia();
       killCameraTween();
+      hardZeroViewOffset();
 
       const result = buildFocusLayouts(
         photoId,
@@ -511,6 +544,7 @@ function PhotoGallery() {
       killCameraTween,
       measureViewport,
       runFlip,
+      hardZeroViewOffset,
       stopInertia,
       tweenCameraTo,
       updateVisiblePhotos,
@@ -520,6 +554,7 @@ function PhotoGallery() {
   const goOverview = useCallback(() => {
     flipStaggerRef.current = null;
     stopInertia();
+    hardZeroViewOffset();
 
     canvasSizeRef.current = homeCanvasRef.current;
     setCanvasSize(homeCanvasRef.current);
@@ -540,6 +575,7 @@ function PhotoGallery() {
   }, [
     applyLayouts,
     getOverviewCamera,
+    hardZeroViewOffset,
     runFlip,
     stopInertia,
     tweenCameraTo,
@@ -643,26 +679,122 @@ function PhotoGallery() {
       window.removeEventListener('resize', onResize);
       if (paintRafRef.current) cancelAnimationFrame(paintRafRef.current);
       if (inertiaRafRef.current) cancelAnimationFrame(inertiaRafRef.current);
+      if (roamRafRef.current) cancelAnimationFrame(roamRafRef.current);
       killCameraTween();
     };
   }, [fitOverview, killCameraTween, measureViewport, updateVisiblePhotos]);
+
+  // Continuous roam presence: mouse-follow + idle drift via composed view offset.
+  useEffect(() => {
+    lastPointerActivityRef.current = performance.now();
+
+    const tickRoam = (now) => {
+      roamRafRef.current = requestAnimationFrame(tickRoam);
+      const cfg = motionConfig(settingsRef.current);
+      const lerp = clamp(cfg.mouseFollowLerp ?? 0.1, 0.02, 0.5);
+
+      const roamAllowed =
+        !prefersReducedMotion() &&
+        !isMobileRef.current &&
+        !focusedIdRef.current &&
+        !flipBusyRef.current &&
+        !isDraggingRef.current &&
+        !inertiaActiveRef.current &&
+        !cameraTweenRef.current &&
+        pointersRef.current.size === 0;
+
+      if (roamAllowed) {
+        const strength =
+          (cfg.mouseFollowStrength ?? 0) / Math.max(cameraRef.current.scale, 0.25);
+        const nx = cursorNormRef.current.x;
+        const ny = cursorNormRef.current.y;
+        // Cursor right → canvas shifts left (look-toward feel).
+        let tx = -nx * strength;
+        let ty = -ny * strength;
+
+        const idleAmp = cfg.idleDriftAmp ?? 0;
+        if (idleAmp > 0 && now - lastPointerActivityRef.current > 1500) {
+          const t = now * 0.001;
+          tx += Math.sin(t * 0.35) * idleAmp;
+          ty += Math.cos(t * 0.28) * idleAmp * 0.7;
+        }
+
+        viewOffsetTargetRef.current = { x: tx, y: ty };
+      } else {
+        viewOffsetTargetRef.current = { x: 0, y: 0 };
+      }
+
+      const ox = viewOffsetRef.current.x;
+      const oy = viewOffsetRef.current.y;
+      const tx = viewOffsetTargetRef.current.x;
+      const ty = viewOffsetTargetRef.current.y;
+      const nextX = ox + (tx - ox) * lerp;
+      const nextY = oy + (ty - oy) * lerp;
+      const settled =
+        Math.abs(nextX) < 0.02 &&
+        Math.abs(nextY) < 0.02 &&
+        Math.abs(tx) < 0.02 &&
+        Math.abs(ty) < 0.02;
+
+      if (settled) {
+        if (ox !== 0 || oy !== 0) {
+          viewOffsetRef.current = { x: 0, y: 0 };
+          paintCamera();
+        }
+        return;
+      }
+
+      if (Math.abs(nextX - ox) > 0.01 || Math.abs(nextY - oy) > 0.01) {
+        viewOffsetRef.current = { x: nextX, y: nextY };
+        paintCamera();
+      }
+    };
+
+    roamRafRef.current = requestAnimationFrame(tickRoam);
+    return () => {
+      if (roamRafRef.current) cancelAnimationFrame(roamRafRef.current);
+      roamRafRef.current = 0;
+    };
+  }, [paintCamera]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
 
+    const onPointerHover = (event) => {
+      if (isMobileRef.current) return;
+      if (event.pointerType && event.pointerType !== 'mouse') return;
+
+      let { width, height, left, top } = viewportSizeRef.current;
+      if (!width || !height) {
+        ({ width, height, left, top } = measureViewport());
+      }
+      if (!width || !height) return;
+
+      const nx = clamp(((event.clientX - left) / width) * 2 - 1, -1, 1);
+      const ny = clamp(((event.clientY - top) / height) * 2 - 1, -1, 1);
+      cursorNormRef.current = { x: nx, y: ny };
+      notePointerActivity();
+    };
+
     const onWheel = (event) => {
       event.preventDefault();
       dismissHint();
+      notePointerActivity();
+      hardZeroViewOffset();
       const cfg = settingsRef.current;
       const factor = event.deltaY > 0 ? cfg.wheelZoomOut : cfg.wheelZoomIn;
       zoomAt(event.clientX, event.clientY, factor);
       updateVisiblePhotos();
     };
 
+    viewport.addEventListener('pointermove', onPointerHover, { passive: true });
     viewport.addEventListener('wheel', onWheel, { passive: false });
-    return () => viewport.removeEventListener('wheel', onWheel);
-  }, [dismissHint, updateVisiblePhotos, zoomAt]);
+    return () => {
+      viewport.removeEventListener('pointermove', onPointerHover);
+      viewport.removeEventListener('wheel', onWheel);
+    };
+  }, [dismissHint, hardZeroViewOffset, measureViewport, notePointerActivity, updateVisiblePhotos, zoomAt]);
 
   useEffect(() => {
     const onKey = (event) => {
@@ -681,6 +813,8 @@ function PhotoGallery() {
 
     stopInertia();
     killCameraTween();
+    hardZeroViewOffset();
+    notePointerActivity();
     dismissHint();
     movedRef.current = false;
     measureViewport();
@@ -706,6 +840,7 @@ function PhotoGallery() {
         lastY: event.clientY,
         lastT: performance.now(),
       };
+      isDraggingRef.current = true;
       setIsDragging(true);
     } else if (pointersRef.current.size === 2) {
       dragRef.current = null;
@@ -797,8 +932,10 @@ function PhotoGallery() {
 
     if (pointersRef.current.size === 0) {
       dragRef.current = null;
+      isDraggingRef.current = false;
       setIsDragging(false);
       pressTargetRef.current = null;
+      notePointerActivity();
       updateVisiblePhotos();
 
       if (wasTap && photoId && !flipBusyRef.current) {

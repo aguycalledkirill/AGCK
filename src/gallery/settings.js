@@ -78,6 +78,12 @@ export const FACTORY_DEFAULTS = {
   panBoundsPad: 0.2,
   dragThreshold: 5,
 
+  // Roam presence (composed view offset — not written into cameraRef)
+  mouseFollowStrength: 36,
+  mouseFollowLerp: 0.1,
+  idleDriftAmp: 6,
+  desktopInertia: true,
+
   // Appearance
   borderRadius: 0,
   hoverScale: 1.02,
@@ -112,6 +118,10 @@ export const MOBILE_DEFAULTS = {
   flipDuration: 0.85,
   flipStagger: 0.16,
   cameraTweenDuration: 0.85,
+  mouseFollowStrength: 0,
+  mouseFollowLerp: 0.12,
+  idleDriftAmp: 0,
+  desktopInertia: false,
 };
 
 export function isMobileViewport() {
@@ -272,6 +282,10 @@ export const SETTINGS_SECTIONS = [
       { key: 'wheelZoomOut', label: 'Wheel zoom out', min: 0.75, max: 0.99, step: 0.01 },
       { key: 'panBoundsPad', label: 'Pan bounds pad', min: 0, max: 0.5, step: 0.01 },
       { key: 'dragThreshold', label: 'Drag threshold', min: 1, max: 20, step: 1 },
+      { key: 'mouseFollowStrength', label: 'Mouse follow', min: 0, max: 80, step: 1 },
+      { key: 'mouseFollowLerp', label: 'Follow lerp', min: 0.02, max: 0.4, step: 0.01 },
+      { key: 'idleDriftAmp', label: 'Idle drift', min: 0, max: 24, step: 1 },
+      { key: 'desktopInertia', label: 'Desktop inertia', type: 'toggle' },
     ],
   },
   {
